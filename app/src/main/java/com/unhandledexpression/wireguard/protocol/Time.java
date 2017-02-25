@@ -15,7 +15,6 @@ public class Time {
 
         long seconds = System.currentTimeMillis() / 1000l;
         Long prefix = new Long("4611686018427387914");
-        Log.d("wg", "time prefix: "+prefix);
         Long tai = prefix + seconds;
 
         b.order(ByteOrder.BIG_ENDIAN);
