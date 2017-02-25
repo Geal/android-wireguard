@@ -30,10 +30,6 @@ import com.southernstorm.noise.protocol.Destroyable;
 
 /**
  * Fallback implementation of BLAKE2s for the Noise library.
- * 
- * This implementation only supports message digesting with an output
- * length of 32 bytes.  Keyed hashing and variable-length digests are
- * not supported.
  */
 public class Blake2sMessageDigest extends MessageDigest implements Destroyable {
 	
@@ -43,6 +39,10 @@ public class Blake2sMessageDigest extends MessageDigest implements Destroyable {
 	private int[] v;
 	private long length;
 	private int posn;
+	private int digestSize;
+	private byte[] key;
+
+	private static int BLOCK_LENGTH = 64;
 
 	/**
 	 * Constructs a new BLAKE2s message digest object.
@@ -53,14 +53,34 @@ public class Blake2sMessageDigest extends MessageDigest implements Destroyable {
 		block = new byte [64];
 		m = new int [16];
 		v = new int [16];
+		digestSize = 32;
+        key = new byte[0];
+		engineReset();
+	}
+
+	public Blake2sMessageDigest(int _digestSize, byte[] _key) throws DigestException {
+		super("BLAKE2S-256");
+		h = new int [8];
+		block = new byte [64];
+		m = new int [16];
+		v = new int [16];
+		digestSize = _digestSize;
+		key = _key;
+		if (key == null) {
+			key = new byte[0];
+		}
+
+		if (key.length > 32) {
+			throw new DigestException("Invalid key length");
+		}
 		engineReset();
 	}
 	
 	@Override
 	protected byte[] engineDigest() {
-		byte[] digest = new byte [32];
+		byte[] digest = new byte [digestSize];
 		try {
-			engineDigest(digest, 0, 32);
+			engineDigest(digest, 0, digestSize);
 		} catch (DigestException e) {
 			// Shouldn't happen, but just in case.
 			Arrays.fill(digest, (byte)0);
@@ -71,11 +91,11 @@ public class Blake2sMessageDigest extends MessageDigest implements Destroyable {
 	@Override
 	protected int engineDigest(byte[] buf, int offset, int len) throws DigestException
 	{
-		if (len < 32)
+		if (len < digestSize)
 			throw new DigestException("Invalid digest length for BLAKE2s");
 		Arrays.fill(block, posn, 64, (byte)0);
 		transform(-1);
-		for (int index = 0; index < 8; ++index) {
+		for (int index = 0; index < digestSize/4; ++index) {
 			int value = h[index];
 			buf[offset++] = (byte)value;
 			buf[offset++] = (byte)(value >> 8);
@@ -87,12 +107,12 @@ public class Blake2sMessageDigest extends MessageDigest implements Destroyable {
 
 	@Override
 	protected int engineGetDigestLength() {
-		return 32;
+		return digestSize;
 	}
 
 	@Override
 	protected void engineReset() {
-		h[0] = 0x6A09E667 ^ 0x01010020;
+		h[0] = 0x6A09E667;
 		h[1] = 0xBB67AE85;
 		h[2] = 0x3C6EF372;
 		h[3] = 0xA54FF53A;
@@ -100,8 +120,22 @@ public class Blake2sMessageDigest extends MessageDigest implements Destroyable {
 		h[5] = 0x9B05688C;
 		h[6] = 0x1F83D9AB;
 		h[7] = 0x5BE0CD19;
+
+		long[] param = {digestSize & 0xff, key.length, 1, 1};
+		this.h[0] ^= param[0] & 0xFF | (param[1] & 0xFF) << 8 | (param[2] & 0xff) << 16 | (param[3] &
+				0xff) << 24;
 		length = 0;
 		posn = 0;
+
+		if (key.length > 0) {
+			for (int i = 0; i < key.length; ++i) {
+				this.block[i] = key[i];
+			}
+			for (int i = key.length; i < BLOCK_LENGTH; i++) {
+				this.block[i] = 0;
+			}
+			this.posn = BLOCK_LENGTH;
+		}
 	}
 
 	@Override
