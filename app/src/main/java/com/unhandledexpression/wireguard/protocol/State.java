@@ -20,6 +20,7 @@ import java.security.DigestException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 
+import javax.crypto.BadPaddingException;
 import javax.crypto.ShortBufferException;
 
 /**
@@ -101,6 +102,61 @@ public class State {
         return bytePacket;
     }
 
+    public boolean consumeResponsePacket(byte[] responsePacket) {
+        if(     responsePacket[0] == responseHeader[0] &&
+                responsePacket[1] == responseHeader[1] &&
+                responsePacket[2] == responseHeader[2] &&
+                responsePacket[3] == responseHeader[3]) {
+
+            //FIXME: check the packet's length
+
+            try {
+                byte[] myPublicKey = new byte[32];
+                handshakeState.getLocalKeyPair().getPublicKey(myPublicKey, 0);
+                Blake2sMessageDigest digest = new Blake2sMessageDigest(16, null);
+
+                //Log.d("wg", "hashing serverKey: "+Utils.hexdump(myPublicKey));
+                digest.update(myPublicKey);
+                //Log.d("wg", "hashing packet: "+Utils.hexdump(Arrays.copyOfRange(packet.array(), 0, 116)));
+                digest.update(responsePacket, 0, 60);
+
+                byte[] mac1 = Arrays.copyOfRange(responsePacket, 60, 76);
+                if(!Arrays.equals(mac1, digest.digest())) {
+                    Log.d("wg", "invalid mac1");
+                    return false;
+                }
+
+                //FIXME: mac2 check deactivated for now
+                if(false) {
+                    byte[] mac2 = Arrays.copyOfRange(responsePacket, 76, 92);
+                    //???
+                }
+
+                ByteBuffer bb = ByteBuffer.wrap(Arrays.copyOfRange(responsePacket, 4, 12));
+                int responderIndex = bb.getInt();
+                int initiatorIndex = bb.getInt();
+
+                Log.i("wg", "response has initiator="+initiatorIndex+" and responder="+responderIndex);
+
+                byte[] payload = new byte[0]; //whatever size
+                handshakeState.readMessage(responsePacket, 12, 48, payload, 0);
+
+                return true;
+            } catch (DigestException e) {
+                e.printStackTrace();
+            } catch (ShortBufferException e) {
+                e.printStackTrace();
+            } catch (BadPaddingException e) {
+                e.printStackTrace();
+            }
+            return false;
+        } else {
+            Log.d("wg", "invalid packet header");
+            //FIXME: we might get the cookie reply here instead
+            return false;
+        }
+    }
+
     public void initiate() {
         try {
             byte[] bytePacket = createInitiatorPacket();
@@ -118,6 +174,9 @@ public class State {
             s.receive(received);
 
             Log.i("wg", "received: "+Utils.hexdump(receivedData));
+            if(consumeResponsePacket(receivedData)) {
+                Log.i("wg", "the response packet was correct");
+            }
         } catch (ShortBufferException e) {
             e.printStackTrace();
         } catch (UnknownHostException e) {
