@@ -27,9 +27,14 @@ import javax.crypto.ShortBufferException;
  */
 
 public class State {
-    public static String PROLOGUE = "WireGuard v0 zx2c4 Jason@zx2c4.com";
-    public byte[]            preSharedKey;
-    public HandshakeState    handshakeState;
+    public static final String PROLOGUE          = "WireGuard v0 zx2c4 Jason@zx2c4.com";
+    public static final byte[] initiatorHeader   = { 1, 0, 0, 0 };
+    public static final byte[] responseHeader    = { 2, 0, 0, 0 };
+    public static final byte[] cookieReplyHeader = { 3, 0, 0, 0 };
+    public static final byte[] transportHeader   = { 4, 0, 0, 0 };
+
+    public              byte[]              preSharedKey;
+    public              HandshakeState      handshakeState;
 
     public State(String b64PrivateKey, String b64ServerPublicKey) {
         byte[] data = Base64.decode(b64PrivateKey, Base64.DEFAULT);
@@ -54,12 +59,7 @@ public class State {
         byte[] tai = Time.tai64n();
         ByteBuffer packet = ByteBuffer.allocate(148);
         packet.order(ByteOrder.LITTLE_ENDIAN);
-        byte[] header = new byte[4];
-        header[0] = 1;
-        header[1] = 0;
-        header[2] = 0;
-        header[3] = 0;
-        packet.put(header);
+        packet.put(initiatorHeader);
 
         packet.putInt(Hardcoded.mySenderIndex);
 
