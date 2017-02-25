@@ -16,6 +16,7 @@ import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.security.DigestException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 
@@ -67,22 +68,31 @@ public class State {
         packet.put(payload);
 
         Log.i("wg", "payload: "+ Utils.hexdump(payload));
+        byte[] ephemeral = new byte[32];
+        handshakeState.getLocalKeyPair().getPublicKey(ephemeral, 0);
+        Log.i("wg", "ephemeral pubkey: "+Utils.hexdump(ephemeral));
 
         Log.i("wg", "packet so far: "+ Utils.hexdump(Arrays.copyOfRange(packet.array(), 0, 116)));
 
 
         byte[] serverKey = new byte[32];
         handshakeState.getRemotePublicKey().getPublicKey(serverKey, 0);
-        Log.d("wg", "initiator pubkey("+serverKey.length+" bytes): "+Utils.hexdump(serverKey));
 
-        Blake2sMessageDigest digest = new Blake2sMessageDigest();
-        digest.update(serverKey);
-        digest.update(packet.array(), 0, 116);
+        try {
+            Blake2sMessageDigest digest = new Blake2sMessageDigest(16, null);
 
-        byte[] mac1 = digest.digest();
-        packet.put(mac1, 0, 16);
-        Log.i("wg", "complete mac1: "+ Utils.hexdump(mac1));
-        Log.i("wg", "reduced mac1: "+ Utils.hexdump(Arrays.copyOfRange(mac1, 0, 16)));
+            Log.d("wg", "hashing serverKey: "+Utils.hexdump(serverKey));
+            digest.update(serverKey);
+            Log.d("wg", "hashing packet: "+Utils.hexdump(Arrays.copyOfRange(packet.array(), 0, 116)));
+            digest.update(packet.array(), 0, 116);
+
+            byte[] mac1 = digest.digest();
+            packet.put(mac1, 0, 16);
+            Log.i("wg", "complete mac1: "+ Utils.hexdump(mac1));
+            Log.i("wg", "reduced mac1: "+ Utils.hexdump(Arrays.copyOfRange(mac1, 0, 16)));
+        } catch (DigestException e) {
+            e.printStackTrace();
+        }
 
         byte[] bytePacket = packet.array();
 
