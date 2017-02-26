@@ -178,7 +178,7 @@ public class State {
             byte[] bytePacket = createInitiatorPacket();
             channel = DatagramChannel.open();
             channel.connect(new InetSocketAddress(InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort));
-            DatagramPacket udpPacket = new DatagramPacket(bytePacket, bytePacket.length, channel.getRemoteAddress());
+            //DatagramPacket udpPacket = new DatagramPacket(bytePacket, bytePacket.length, channel.getRemoteAddress());
 
             //channel.send(udpPacket);
             channel.write(ByteBuffer.wrap(bytePacket, 0, bytePacket.length));
@@ -236,7 +236,11 @@ public class State {
         int index = 0;
         ChaChaPolyCipherState sender = (ChaChaPolyCipherState) handshakePair.getSender();
         while(index <= length) {
-            int bufferSize = length + 32;
+            //int bufferSize = length + 32;
+            int bufferSize = 512;
+            //480 = 512 - header 16 bytes - mac 16 bytes
+            int maxPayloadSize = bufferSize - 16 - 16;
+
             ByteBuffer bb = ByteBuffer.allocate(bufferSize);
             bb.order(ByteOrder.LITTLE_ENDIAN);
             bb.put(transportHeader);
@@ -246,8 +250,7 @@ public class State {
 
             byte[] packet = bb.array();
             Log.i("wg", "header with counter: "+Utils.hexdump(Arrays.copyOfRange(packet, 0, 16)));
-                    //480 = 512 - header 16 bytes - mac 16 bytes
-            int toCopy = length;//min(480, data.length - index);
+             int toCopy = min(maxPayloadSize, data.length - index);
             Log.i("wg", "to copy: "+toCopy);
             try {
                 int copied = sender.encryptWithAd(null, data, index, packet, 16, toCopy);
