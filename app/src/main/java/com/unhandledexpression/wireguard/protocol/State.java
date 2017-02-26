@@ -1,6 +1,8 @@
 package com.unhandledexpression.wireguard.protocol;
 
 import com.southernstorm.noise.crypto.Blake2sMessageDigest;
+import com.southernstorm.noise.protocol.ChaChaPolyCipherState;
+import com.southernstorm.noise.protocol.CipherStatePair;
 import com.southernstorm.noise.protocol.HandshakeState;
 import com.unhandledexpression.wireguard.Utils;
 
@@ -23,6 +25,9 @@ import java.util.Arrays;
 import javax.crypto.BadPaddingException;
 import javax.crypto.ShortBufferException;
 
+import static java.lang.Math.min;
+
+
 /**
  * Created by geal on 25/02/2017.
  */
@@ -36,6 +41,14 @@ public class State {
 
     public              byte[]              preSharedKey;
     public              HandshakeState      handshakeState;
+    public              int                 myInitiatorIndex = 42;
+    public              int                 remoteMyInitiatorIndex;
+    public              long                sendCounter = 0;
+    public              long                receiveCounter = 0;
+    public              int                 responderIndex;
+    public              int                 initiatorIndex;
+    public              DatagramSocket      socket;
+    public              CipherStatePair     handshakePair;
 
     public State(String b64PrivateKey, String b64ServerPublicKey) {
         byte[] data = Base64.decode(b64PrivateKey, Base64.DEFAULT);
@@ -133,8 +146,9 @@ public class State {
                 }
 
                 ByteBuffer bb = ByteBuffer.wrap(Arrays.copyOfRange(responsePacket, 4, 12));
-                int responderIndex = bb.getInt();
-                int initiatorIndex = bb.getInt();
+                bb.order(ByteOrder.LITTLE_ENDIAN);
+                responderIndex = bb.getInt();
+                initiatorIndex = bb.getInt();
 
                 Log.i("wg", "response has initiator="+initiatorIndex+" and responder="+responderIndex);
 
@@ -159,24 +173,45 @@ public class State {
 
     public void initiate() {
         try {
+            Log.d("wg", "initiator state before send: "+handshakeState.getAction());
             byte[] bytePacket = createInitiatorPacket();
-            DatagramSocket s = new DatagramSocket();
-            s.connect(InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort);
-            SocketAddress addr = s.getLocalSocketAddress();
-            DatagramPacket udpPacket = new DatagramPacket(bytePacket, bytePacket.length, s.getRemoteSocketAddress());
+            socket = new DatagramSocket();
+            socket.connect(InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort);
+            DatagramPacket udpPacket = new DatagramPacket(bytePacket, bytePacket.length, socket.getRemoteSocketAddress());
 
-            s.send(udpPacket);
+            socket.send(udpPacket);
             Log.i("wg", "sent packet");
+            Log.d("wg", "initiator state after send: "+handshakeState.getAction());
+
 
 
             byte[] receivedData = new byte[92];
             DatagramPacket received = new DatagramPacket(receivedData, receivedData.length);
-            s.receive(received);
+            socket.receive(received);
 
             Log.i("wg", "received: "+Utils.hexdump(receivedData));
             if(consumeResponsePacket(receivedData)) {
                 Log.i("wg", "the response packet was correct");
             }
+            Log.d("wg", "initiator state after receive: "+handshakeState.getAction());
+
+            handshakePair = handshakeState.split();
+            Log.d("wg", "initiator state after split: "+handshakeState.getAction());
+
+            Log.d("wg", "sending keep alive");
+            //keep alive
+            send(new byte[0]);
+            Log.d("wg", "sent, waiting for answer");
+
+            try {
+                byte[] keepAlive = receive();
+                Log.d("wg", "received: "+Utils.hexdump(keepAlive));
+
+            } catch (BadPaddingException e) {
+                e.printStackTrace();
+            }
+
+
         } catch (ShortBufferException e) {
             e.printStackTrace();
         } catch (UnknownHostException e) {
@@ -186,7 +221,73 @@ public class State {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
 
+    public void send(byte[] data) throws IOException {
+        int index = 0;
+        while(index <= data.length) {
+            ByteBuffer bb = ByteBuffer.allocate(512);
+            bb.order(ByteOrder.LITTLE_ENDIAN);
+            bb.put(transportHeader);
+            bb.putInt(responderIndex);
+
+            ChaChaPolyCipherState sender = (ChaChaPolyCipherState) handshakePair.getSender();
+            bb.putLong(sender.n);
+
+            byte[] packet = bb.array();
+            //480 = 512 - header 16 bytes - mac 16 bytes
+            int toCopy = min(480, data.length - index);
+            Log.i("wg", "to copy: "+toCopy);
+            try {
+                int copied = sender.encryptWithAd(null, data, index, packet, 16, toCopy);
+                index += copied;
+
+                Log.i("wg", "will send: "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
+                Log.i("wg", "complete:  "+Utils.hexdump(packet));
+
+                DatagramPacket udpPacket = new DatagramPacket(packet, copied+16, socket.getRemoteSocketAddress());
+
+                socket.send(udpPacket);
+                Log.i("wg", "sent packet: "+sender.n+" -> "+(copied+16)+" bytes");
+            } catch (ShortBufferException e) {
+                e.printStackTrace();
+            }
+
+        }
+    }
+
+    public byte[] receive() throws IOException, ShortBufferException, BadPaddingException {
+        byte[] receivedData = new byte[512];
+        DatagramPacket received = new DatagramPacket(receivedData, receivedData.length);
+
+        socket.receive(received);
+        Log.i("wg", "received: "+Utils.hexdump(receivedData));
+
+
+        if(     receivedData[0] == transportHeader[0] &&
+                receivedData[1] == transportHeader[1] &&
+                receivedData[2] == transportHeader[2] &&
+                receivedData[3] == transportHeader[3]) {
+
+            ByteBuffer bb = ByteBuffer.wrap(Arrays.copyOfRange(receivedData, 4, 16));
+            int remoteIndex = bb.getInt();
+            receiveCounter  = bb.getLong();
+            Log.d("wg", "got remote index: "+remoteIndex);
+            Log.d("wg", "got receive counter: "+receiveCounter);
+
+            byte[] payload = new byte[received.getLength() - 32];
+            int decrypted = handshakePair.getReceiver().decryptWithAd(null, receivedData, 16,
+                    payload, 0, received.getLength() - 16);
+
+            Log.i("wg", "decrypted packet("+decrypted+" bytes of payload): "+receiveCounter);
+            return payload;
+
+            //FIXME: check the packet's length
+
+        } else {
+            Log.d("wg", "invalid transport header packet");
+            return null;
+        }
 
     }
 }
