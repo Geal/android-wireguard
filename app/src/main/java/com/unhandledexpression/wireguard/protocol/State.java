@@ -13,11 +13,12 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
-import java.net.SocketAddress;
+import java.net.InetSocketAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.DatagramChannel;
 import java.security.DigestException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
@@ -47,7 +48,7 @@ public class State {
     public              long                receiveCounter = 0;
     public              int                 responderIndex;
     public              int                 initiatorIndex;
-    public              DatagramSocket      socket;
+    public              DatagramChannel     channel;
     public              CipherStatePair     handshakePair;
 
     public State(String b64PrivateKey, String b64ServerPublicKey) {
@@ -175,22 +176,26 @@ public class State {
         try {
             Log.d("wg", "initiator state before send: "+handshakeState.getAction());
             byte[] bytePacket = createInitiatorPacket();
-            socket = new DatagramSocket();
-            socket.connect(InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort);
-            DatagramPacket udpPacket = new DatagramPacket(bytePacket, bytePacket.length, socket.getRemoteSocketAddress());
+            channel = DatagramChannel.open();
+            channel.connect(new InetSocketAddress(InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort));
+            DatagramPacket udpPacket = new DatagramPacket(bytePacket, bytePacket.length, channel.getRemoteAddress());
 
-            socket.send(udpPacket);
+            //channel.send(udpPacket);
+            channel.write(ByteBuffer.wrap(bytePacket, 0, bytePacket.length));
             Log.i("wg", "sent packet");
             Log.d("wg", "initiator state after send: "+handshakeState.getAction());
 
 
 
-            byte[] receivedData = new byte[92];
-            DatagramPacket received = new DatagramPacket(receivedData, receivedData.length);
-            socket.receive(received);
+            //byte[] receivedData = new byte[92];
+            //DatagramPacket received = new DatagramPacket(receivedData, receivedData.length);
+            //channel.receive(received);
+            ByteBuffer bb = ByteBuffer.allocate(92);
+            int bytesRead = channel.read(bb);
 
-            Log.i("wg", "received: "+Utils.hexdump(receivedData));
-            if(consumeResponsePacket(receivedData)) {
+            Log.i("wg", "received("+bytesRead+" bytes): ");
+            Log.d("wg", Utils.formatHexDump(bb.array(), 0, bytesRead));
+            if(consumeResponsePacket(Arrays.copyOfRange(bb.array(), 0, bytesRead))) {
                 Log.i("wg", "the response packet was correct");
             }
             Log.d("wg", "initiator state after receive: "+handshakeState.getAction());
@@ -237,7 +242,6 @@ public class State {
             bb.put(transportHeader);
             bb.putInt(responderIndex);
 
-
             bb.putLong(sender.n);
 
             byte[] packet = bb.array();
@@ -252,9 +256,8 @@ public class State {
                 Log.i("wg", "will send ("+(copied+16)+" bytes): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
                 //Log.i("wg", "complete:  "+Utils.hexdump(packet));
 
-                DatagramPacket udpPacket = new DatagramPacket(packet, copied+16, socket.getRemoteSocketAddress());
 
-                socket.send(udpPacket);
+                channel.write(ByteBuffer.wrap(packet, 0, copied+16));
                 Log.i("wg", "sent packet: "+sender.n+" -> "+(copied+16)+" bytes");
             } catch (ShortBufferException e) {
                 e.printStackTrace();
@@ -264,10 +267,14 @@ public class State {
     }
 
     public byte[] receive() throws IOException, ShortBufferException, BadPaddingException {
-        byte[] receivedData = new byte[512];
-        DatagramPacket received = new DatagramPacket(receivedData, receivedData.length);
 
-        socket.receive(received);
+        ByteBuffer bb = ByteBuffer.allocate(32767);
+        int bytesRead = channel.read(bb);
+
+        Log.i("wg", "received("+bytesRead+" bytes): ");
+        Log.d("wg", Utils.formatHexDump(bb.array(), 0, bytesRead));
+
+        byte[] receivedData = Arrays.copyOfRange(bb.array(), 0, bytesRead);
         Log.i("wg", "received: "+Utils.hexdump(receivedData));
 
 
@@ -276,18 +283,19 @@ public class State {
                 receivedData[2] == transportHeader[2] &&
                 receivedData[3] == transportHeader[3]) {
 
-            ByteBuffer bb = ByteBuffer.wrap(Arrays.copyOfRange(receivedData, 4, 16));
-            bb.order(ByteOrder.LITTLE_ENDIAN);
-            int remoteIndex = bb.getInt();
-            receiveCounter  = bb.getLong();
+            ByteBuffer bb2 = ByteBuffer.wrap(Arrays.copyOfRange(receivedData, 4, 16));
+
+            bb2.order(ByteOrder.LITTLE_ENDIAN);
+            int remoteIndex = bb2.getInt();
+            receiveCounter  = bb2.getLong();
             Log.d("wg", "got remote index: "+remoteIndex);
             Log.d("wg", "got receive counter: "+receiveCounter);
             ChaChaPolyCipherState receiver = (ChaChaPolyCipherState) handshakePair.getReceiver();
                     Log.d("wg", "handshake pair receiver counter: "+ receiver.n);
 
-            byte[] payload = new byte[received.getLength() - 32];
+            byte[] payload = new byte[receivedData.length - 32];
             int decrypted = handshakePair.getReceiver().decryptWithAd(null, receivedData, 16,
-                    payload, 0, received.getLength() - 16);
+                    payload, 0, receivedData.length - 16);
 
             Log.i("wg", "decrypted packet("+decrypted+" bytes of payload) with counter: "+receiveCounter);
             return payload;
