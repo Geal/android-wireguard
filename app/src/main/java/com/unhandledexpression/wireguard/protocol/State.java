@@ -200,7 +200,10 @@ public class State {
 
             Log.d("wg", "sending keep alive");
             //keep alive
-            send(new byte[0]);
+            send(new byte[0], 0);
+            Log.d("wg", "sent keep alive");
+
+            /*
             Log.d("wg", "sent, waiting for answer");
 
             try {
@@ -211,6 +214,7 @@ public class State {
                 e.printStackTrace();
             }
 
+            */
 
         } catch (ShortBufferException e) {
             e.printStackTrace();
@@ -223,27 +227,30 @@ public class State {
         }
     }
 
-    public void send(byte[] data) throws IOException {
+    public void send(byte[] data, int length) throws IOException {
         int index = 0;
-        while(index <= data.length) {
-            ByteBuffer bb = ByteBuffer.allocate(512);
+        ChaChaPolyCipherState sender = (ChaChaPolyCipherState) handshakePair.getSender();
+        while(index <= length) {
+            int bufferSize = length + 32;
+            ByteBuffer bb = ByteBuffer.allocate(bufferSize);
             bb.order(ByteOrder.LITTLE_ENDIAN);
             bb.put(transportHeader);
             bb.putInt(responderIndex);
 
-            ChaChaPolyCipherState sender = (ChaChaPolyCipherState) handshakePair.getSender();
+
             bb.putLong(sender.n);
 
             byte[] packet = bb.array();
-            //480 = 512 - header 16 bytes - mac 16 bytes
-            int toCopy = min(480, data.length - index);
+            Log.i("wg", "header with counter: "+Utils.hexdump(Arrays.copyOfRange(packet, 0, 16)));
+                    //480 = 512 - header 16 bytes - mac 16 bytes
+            int toCopy = length;//min(480, data.length - index);
             Log.i("wg", "to copy: "+toCopy);
             try {
                 int copied = sender.encryptWithAd(null, data, index, packet, 16, toCopy);
                 index += copied;
 
-                Log.i("wg", "will send: "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
-                Log.i("wg", "complete:  "+Utils.hexdump(packet));
+                Log.i("wg", "will send ("+(copied+16)+" bytes): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
+                //Log.i("wg", "complete:  "+Utils.hexdump(packet));
 
                 DatagramPacket udpPacket = new DatagramPacket(packet, copied+16, socket.getRemoteSocketAddress());
 
@@ -270,16 +277,19 @@ public class State {
                 receivedData[3] == transportHeader[3]) {
 
             ByteBuffer bb = ByteBuffer.wrap(Arrays.copyOfRange(receivedData, 4, 16));
+            bb.order(ByteOrder.LITTLE_ENDIAN);
             int remoteIndex = bb.getInt();
             receiveCounter  = bb.getLong();
             Log.d("wg", "got remote index: "+remoteIndex);
             Log.d("wg", "got receive counter: "+receiveCounter);
+            ChaChaPolyCipherState receiver = (ChaChaPolyCipherState) handshakePair.getReceiver();
+                    Log.d("wg", "handshake pair receiver counter: "+ receiver.n);
 
             byte[] payload = new byte[received.getLength() - 32];
             int decrypted = handshakePair.getReceiver().decryptWithAd(null, receivedData, 16,
                     payload, 0, received.getLength() - 16);
 
-            Log.i("wg", "decrypted packet("+decrypted+" bytes of payload): "+receiveCounter);
+            Log.i("wg", "decrypted packet("+decrypted+" bytes of payload) with counter: "+receiveCounter);
             return payload;
 
             //FIXME: check the packet's length
