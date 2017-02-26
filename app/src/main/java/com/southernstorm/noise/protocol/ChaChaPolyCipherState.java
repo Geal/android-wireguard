@@ -33,13 +33,13 @@ import com.southernstorm.noise.crypto.Poly1305;
 /**
  * Implements the ChaChaPoly cipher for Noise.
  */
-class ChaChaPolyCipherState implements CipherState {
+public class ChaChaPolyCipherState implements CipherState {
 
 	private Poly1305 poly;
 	private int[] input;
 	private int[] output;
 	private byte[] polyKey;
-	long n;
+	public long n;
 	private boolean haskey;
 	
 	/**
