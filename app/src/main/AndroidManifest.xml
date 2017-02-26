@@ -16,6 +16,12 @@
             </intent-filter>
         </activity>
 
+        <service android:name=".VPN"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService"/>
+            </intent-filter>
+        </service>
     </application>
 
     <uses-permission android:name="android.permission.INTERNET" />
