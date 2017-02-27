@@ -38,7 +38,8 @@ import static java.lang.Math.min;
 public class State {
     public static final String PROLOGUE          = "WireGuard v0 zx2c4 Jason@zx2c4.com";
     public static final byte[] initiatorHeader   = { 1, 0, 0, 0 };
-    public static final byte[] responseHeader    = { 2, 0, 0, 0 };
+    //public static final byte[] responseHeader    = { 2, 0, 0, 0 };
+    public static final int responseHeader    = 2;
     public static final byte[] cookieReplyHeader = { 3, 0, 0, 0 };
     public static final byte[] transportHeader   = { 4, 0, 0, 0 };
 
@@ -129,22 +130,31 @@ public class State {
     }
 
     public boolean consumeResponsePacket(byte[] responsePacket) {
-        if(     responsePacket[0] == responseHeader[0] &&
-                responsePacket[1] == responseHeader[1] &&
-                responsePacket[2] == responseHeader[2] &&
-                responsePacket[3] == responseHeader[3]) {
+        return consumeResponsePacket(ByteBuffer.wrap(responsePacket));
+    }
 
+    public boolean consumeResponsePacket(ByteBuffer responsePacket) {
+        responsePacket.order(ByteOrder.LITTLE_ENDIAN);
+        responsePacket.mark();
+        Log.d("wg", "offset begin: "+responsePacket.position());
+        int header = responsePacket.getInt();
+        if(header == responseHeader) {
             //FIXME: check the packet's length
 
             try {
+                //go back to thr beginning of the packet
+                responsePacket.reset();
+
                 byte[] myPublicKey = new byte[32];
                 handshakeState.getLocalKeyPair().getPublicKey(myPublicKey, 0);
                 Blake2sMessageDigest digest = new Blake2sMessageDigest(16, null);
 
                 digest.update(myPublicKey);
-                digest.update(responsePacket, 0, 60);
 
-                byte[] mac1 = Arrays.copyOfRange(responsePacket, 60, 76);
+                digest.update(responsePacket.array(), responsePacket.position(), 60);
+
+                byte[] mac1 = Arrays.copyOfRange(responsePacket.array(),
+                        responsePacket.position()+60, responsePacket.position()+76);
                 if(!Arrays.equals(mac1, digest.digest())) {
                     Log.d("wg", "invalid mac1");
                     return false;
@@ -152,19 +162,26 @@ public class State {
 
                 //FIXME: mac2 check deactivated for now
                 if(false) {
-                    byte[] mac2 = Arrays.copyOfRange(responsePacket, 76, 92);
+                    byte[] mac2 = Arrays.copyOfRange(responsePacket.array(),
+                            responsePacket.position()+76, responsePacket.position()+92);
                     //???
                 }
 
-                ByteBuffer bb = ByteBuffer.wrap(Arrays.copyOfRange(responsePacket, 4, 12));
-                bb.order(ByteOrder.LITTLE_ENDIAN);
-                responderIndex = bb.getInt();
-                initiatorIndex = bb.getInt();
+                //now that the MACs are validated, advance past the header
+                int position = responsePacket.position();
+                responsePacket.position(position+4);
+                Log.d("wg", "offset after header: "+responsePacket.position());
+
+                responderIndex = responsePacket.getInt();
+                initiatorIndex = responsePacket.getInt();
+                Log.d("wg", "offset after indexes: "+responsePacket.position());
+
 
                 Log.i("wg", "response has initiator="+initiatorIndex+" and responder="+responderIndex);
 
                 byte[] payload = new byte[0];
-                handshakeState.readMessage(responsePacket, 12, 48, payload, 0);
+                handshakeState.readMessage(responsePacket.array(), responsePacket.position(), 48,
+                        payload, 0);
 
                 return true;
             } catch (DigestException e) {
@@ -196,11 +213,12 @@ public class State {
 
             ByteBuffer bb = ByteBuffer.allocate(92);
             int bytesRead = channel.read(bb);
+            bb.flip();
 
             Log.i("wg", "received("+bytesRead+" bytes): ");
             Log.d("wg", Utils.formatHexDump(bb.array(), 0, bytesRead));
-            if(consumeResponsePacket(Arrays.copyOfRange(bb.array(), 0, bytesRead))) {
-                Log.i("wg", "the response packet was correct");
+            if(consumeResponsePacket(bb)) {
+                    Log.i("wg", "the response packet was correct");
             }
             Log.d("wg", "initiator state after receive: "+handshakeState.getAction());
 
