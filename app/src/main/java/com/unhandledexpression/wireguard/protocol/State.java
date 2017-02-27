@@ -44,6 +44,7 @@ public class State {
 
     public static final int    HEADER_SIZE            = 4;
     public static final int    INDEX_SIZE             = 4;
+    public static final int    COUNTER_SIZE           = 8;
     public static final int    MAC_SIZE               = 16;
     public static final int    PUBLIC_KEY_SIZE        = 32;
     // ephemeral(32) + static(32) + static mac(16) + timestamp(12) + timestamp mac(16)
@@ -298,31 +299,41 @@ public class State {
 
         ByteBuffer bb = ByteBuffer.allocate(32767);
         int bytesRead = channel.read(bb);
-
         Log.i("wg", "received("+bytesRead+" bytes): ");
         Log.d("wg", Utils.formatHexDump(bb.array(), 0, bytesRead));
 
-        byte[] receivedData = Arrays.copyOfRange(bb.array(), 0, bytesRead);
-        Log.i("wg", "received: "+Utils.hexdump(receivedData));
+        bb.flip();
+        //what about when the buffer already has some data?
+        //bb.limit(bytesRead);
+
+        return  receive(bb, bytesRead);
+    }
+
+    public byte[] receive(ByteBuffer bb, int bytesRead) throws IOException, ShortBufferException, BadPaddingException {
+        bb.order(ByteOrder.LITTLE_ENDIAN);
+
+        //byte[] receivedData = Arrays.copyOfRange(bb.array(), 0, bytesRead);
+        //Log.i("wg", "received: "+Utils.hexdump(receivedData));
 
 
-        ByteBuffer bh = ByteBuffer.wrap(Arrays.copyOfRange(bb.array(), 0, 4));
-        int header = bh.getInt();
+        bb.mark();
+        //ByteBuffer bh = ByteBuffer.wrap(Arrays.copyOfRange(bb.array(), 0, 4));
+        int header = bb.getInt();
         if(header == transportHeader) {
 
-            ByteBuffer bb2 = ByteBuffer.wrap(Arrays.copyOfRange(receivedData, 4, 16));
+            //ByteBuffer bb2 = ByteBuffer.wrap(Arrays.copyOfRange(receivedData, 4, 16));
 
-            bb2.order(ByteOrder.LITTLE_ENDIAN);
-            int remoteIndex = bb2.getInt();
-            receiveCounter  = bb2.getLong();
+            //bb2.order(ByteOrder.LITTLE_ENDIAN);
+            int remoteIndex = bb.getInt();
+            receiveCounter  = bb.getLong();
             Log.d("wg", "got remote index: "+remoteIndex);
             Log.d("wg", "got receive counter: "+receiveCounter);
             ChaChaPolyCipherState receiver = (ChaChaPolyCipherState) handshakePair.getReceiver();
                     Log.d("wg", "handshake pair receiver counter: "+ receiver.n);
 
-            byte[] payload = new byte[receivedData.length - 32];
-            int decrypted = handshakePair.getReceiver().decryptWithAd(null, receivedData, 16,
-                    payload, 0, receivedData.length - 16);
+            byte[] payload = new byte[bytesRead - HEADER_SIZE - INDEX_SIZE - COUNTER_SIZE - MAC_SIZE];
+            int decrypted = handshakePair.getReceiver().decryptWithAd(null, bb.array(), bb.position(),
+                    payload, 0, bytesRead - HEADER_SIZE - INDEX_SIZE - COUNTER_SIZE);
 
             Log.i("wg", "decrypted packet("+decrypted+" bytes of payload) with counter: "+receiveCounter);
             return payload;
