@@ -56,6 +56,8 @@ public class State {
     public static final int    RESPONDER_PAYLOAD_SIZE = 48;
     // header(4) + sender(4) + receiver(4) + responder payload(48) + mac1(16) + mac2(16)
     public static final int    RESPONDER_PACKET_SIZE  = 92;
+    // maybe make this configurable
+    public static final int    MAX_PACKET_SIZE        = 512;
 
     public              Configuration       configuration;
     public              HandshakeState      handshakeState;
@@ -262,13 +264,10 @@ public class State {
     public void send(byte[] data, int length) throws IOException {
         int index = 0;
         ChaChaPolyCipherState sender = (ChaChaPolyCipherState) handshakePair.getSender();
+        ByteBuffer bb = ByteBuffer.allocate(MAX_PACKET_SIZE);
         while(index <= length) {
-            //int bufferSize = length + 32;
-            int bufferSize = 512;
-            //480 = 512 - header 16 bytes - mac 16 bytes
-            int maxPayloadSize = bufferSize - 16 - 16;
+            int maxPayloadSize = MAX_PACKET_SIZE - HEADER_SIZE - INDEX_SIZE - COUNTER_SIZE - MAC_SIZE;
 
-            ByteBuffer bb = ByteBuffer.allocate(bufferSize);
             bb.order(ByteOrder.LITTLE_ENDIAN);
             bb.putInt(transportHeader);
             bb.putInt(responderIndex);
@@ -280,7 +279,9 @@ public class State {
              int toCopy = min(maxPayloadSize, data.length - index);
             Log.i("wg", "to copy: "+toCopy);
             try {
-                int copied = sender.encryptWithAd(null, data, index, packet, 16, toCopy);
+                int copied = sender.encryptWithAd(null,
+                        data, index,
+                        packet, HEADER_SIZE + INDEX_SIZE + COUNTER_SIZE, toCopy);
                 index += copied;
 
                 Log.i("wg", "will send ("+(copied+16)+" bytes): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
@@ -291,6 +292,7 @@ public class State {
             } catch (ShortBufferException e) {
                 e.printStackTrace();
             }
+            bb.reset();
 
         }
     }
