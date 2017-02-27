@@ -43,6 +43,20 @@ public class State {
     public static final byte[] cookieReplyHeader = { 3, 0, 0, 0 };
     public static final byte[] transportHeader   = { 4, 0, 0, 0 };
 
+    public static final int    HEADER_SIZE            = 4;
+    public static final int    INDEX_SIZE             = 4;
+    public static final int    MAC_SIZE               = 16;
+    public static final int    PUBLIC_KEY_SIZE        = 32;
+    // ephemeral(32) + static(32) + static mac(16) + timestamp(12) + timestamp mac(16)
+    public static final int    INITIATOR_PAYLOAD_SIZE = 108;
+    // header(4) + sender(4) + initiator payload(108) + mac1(16) + mac2(16)
+    public static final int    INITIATOR_PACKET_SIZE  = 148;
+
+    // ephemeral(32) + empty payload(0) + empty payload mac(16)
+    public static final int    RESPONDER_PAYLOAD_SIZE = 48;
+    // header(4) + sender(4) + receiver(4) + responder payload(48) + mac1(16) + mac2(16)
+    public static final int    RESPONDER_PACKET_SIZE  = 92;
+
     public              Configuration       configuration;
     public              HandshakeState      handshakeState;
     public              int                 myIndex;
@@ -76,7 +90,7 @@ public class State {
     }
 
     public byte[] createInitiatorPacket() throws ShortBufferException {
-        ByteBuffer packet = ByteBuffer.allocate(148);
+        ByteBuffer packet = ByteBuffer.allocate(INITIATOR_PACKET_SIZE);
         createInitiatorPacket(packet);
         byte[] bytePacket = packet.array();
         Log.i("wg", "generated packet ("+bytePacket.length+" bytes): "+ Utils.hexdump(bytePacket));
@@ -85,7 +99,7 @@ public class State {
     }
 
     public void createInitiatorPacket(ByteBuffer packet) throws ShortBufferException {
-        if(packet.capacity() - packet.position() < 148) {
+        if(packet.capacity() - packet.position() < INITIATOR_PACKET_SIZE) {
             throw new ShortBufferException("initiator packet is 148 bytes");
         }
 
@@ -97,23 +111,23 @@ public class State {
 
         packet.putInt(myIndex);
 
-        byte[] payload = new byte[108];
+        byte[] payload = new byte[INITIATOR_PAYLOAD_SIZE];
         handshakeState.writeMessage(payload, 0, tai, 0, tai.length);
         packet.put(payload);
 
         Log.i("wg", "payload: "+ Utils.hexdump(payload));
-        byte[] ephemeral = new byte[32];
+        byte[] ephemeral = new byte[PUBLIC_KEY_SIZE];
         handshakeState.getLocalKeyPair().getPublicKey(ephemeral, 0);
         Log.i("wg", "ephemeral pubkey: "+Utils.hexdump(ephemeral));
 
         Log.i("wg", "packet so far: "+ Utils.hexdump(Arrays.copyOfRange(packet.array(), 0, 116)));
 
 
-        byte[] serverKey = new byte[32];
+        byte[] serverKey = new byte[PUBLIC_KEY_SIZE];
         handshakeState.getRemotePublicKey().getPublicKey(serverKey, 0);
 
         try {
-            Blake2sMessageDigest digest = new Blake2sMessageDigest(16, null);
+            Blake2sMessageDigest digest = new Blake2sMessageDigest(MAC_SIZE, null);
 
             Log.d("wg", "hashing serverKey: "+Utils.hexdump(serverKey));
             digest.update(serverKey);
@@ -121,9 +135,9 @@ public class State {
             digest.update(packet.array(), 0, 116);
 
             byte[] mac1 = digest.digest();
-            packet.put(mac1, 0, 16);
+            packet.put(mac1, 0, MAC_SIZE);
             Log.i("wg", "complete mac1: "+ Utils.hexdump(mac1));
-            Log.i("wg", "reduced mac1: "+ Utils.hexdump(Arrays.copyOfRange(mac1, 0, 16)));
+            Log.i("wg", "reduced mac1: "+ Utils.hexdump(Arrays.copyOfRange(mac1, 0, MAC_SIZE)));
         } catch (DigestException e) {
             e.printStackTrace();
         }
@@ -145,16 +159,18 @@ public class State {
                 //go back to thr beginning of the packet
                 responsePacket.reset();
 
-                byte[] myPublicKey = new byte[32];
+                byte[] myPublicKey = new byte[PUBLIC_KEY_SIZE];
                 handshakeState.getLocalKeyPair().getPublicKey(myPublicKey, 0);
-                Blake2sMessageDigest digest = new Blake2sMessageDigest(16, null);
+                Blake2sMessageDigest digest = new Blake2sMessageDigest(MAC_SIZE, null);
 
                 digest.update(myPublicKey);
 
-                digest.update(responsePacket.array(), responsePacket.position(), 60);
+                digest.update(responsePacket.array(), responsePacket.position(),
+                        HEADER_SIZE + INDEX_SIZE * 2 + RESPONDER_PAYLOAD_SIZE);
 
                 byte[] mac1 = Arrays.copyOfRange(responsePacket.array(),
-                        responsePacket.position()+60, responsePacket.position()+76);
+                        responsePacket.position()+ HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE,
+                        responsePacket.position()+ HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE + MAC_SIZE);
                 if(!Arrays.equals(mac1, digest.digest())) {
                     Log.d("wg", "invalid mac1");
                     return false;
@@ -163,7 +179,8 @@ public class State {
                 //FIXME: mac2 check deactivated for now
                 if(false) {
                     byte[] mac2 = Arrays.copyOfRange(responsePacket.array(),
-                            responsePacket.position()+76, responsePacket.position()+92);
+                            responsePacket.position()+HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE + MAC_SIZE,
+                            responsePacket.position()+HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE + MAC_SIZE*2);
                     //???
                 }
 
@@ -180,7 +197,7 @@ public class State {
                 Log.i("wg", "response has initiator="+initiatorIndex+" and responder="+responderIndex);
 
                 byte[] payload = new byte[0];
-                handshakeState.readMessage(responsePacket.array(), responsePacket.position(), 48,
+                handshakeState.readMessage(responsePacket.array(), responsePacket.position(), RESPONDER_PAYLOAD_SIZE,
                         payload, 0);
 
                 return true;
@@ -211,7 +228,7 @@ public class State {
             Log.d("wg", "initiator state after send: "+handshakeState.getAction());
 
 
-            ByteBuffer bb = ByteBuffer.allocate(92);
+            ByteBuffer bb = ByteBuffer.allocate(RESPONDER_PACKET_SIZE);
             int bytesRead = channel.read(bb);
             bb.flip();
 
