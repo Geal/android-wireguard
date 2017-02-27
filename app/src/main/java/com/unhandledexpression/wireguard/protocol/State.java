@@ -37,11 +37,10 @@ import static java.lang.Math.min;
 
 public class State {
     public static final String PROLOGUE          = "WireGuard v0 zx2c4 Jason@zx2c4.com";
-    public static final byte[] initiatorHeader   = { 1, 0, 0, 0 };
-    //public static final byte[] responseHeader    = { 2, 0, 0, 0 };
-    public static final int responseHeader    = 2;
-    public static final byte[] cookieReplyHeader = { 3, 0, 0, 0 };
-    public static final byte[] transportHeader   = { 4, 0, 0, 0 };
+    public static final int    initiatorHeader   = 1;
+    public static final int    responseHeader    = 2;
+    public static final int    cookieReplyHeader = 3;
+    public static final int    transportHeader   = 4;
 
     public static final int    HEADER_SIZE            = 4;
     public static final int    INDEX_SIZE             = 4;
@@ -107,7 +106,7 @@ public class State {
 
         byte[] tai = Time.tai64n();
         packet.order(ByteOrder.LITTLE_ENDIAN);
-        packet.put(initiatorHeader);
+        packet.putInt(initiatorHeader);
 
         packet.putInt(myIndex);
 
@@ -270,7 +269,7 @@ public class State {
 
             ByteBuffer bb = ByteBuffer.allocate(bufferSize);
             bb.order(ByteOrder.LITTLE_ENDIAN);
-            bb.put(transportHeader);
+            bb.putInt(transportHeader);
             bb.putInt(responderIndex);
 
             bb.putLong(sender.n);
@@ -307,10 +306,9 @@ public class State {
         Log.i("wg", "received: "+Utils.hexdump(receivedData));
 
 
-        if(     receivedData[0] == transportHeader[0] &&
-                receivedData[1] == transportHeader[1] &&
-                receivedData[2] == transportHeader[2] &&
-                receivedData[3] == transportHeader[3]) {
+        ByteBuffer bh = ByteBuffer.wrap(Arrays.copyOfRange(bb.array(), 0, 4));
+        int header = bh.getInt();
+        if(header == transportHeader) {
 
             ByteBuffer bb2 = ByteBuffer.wrap(Arrays.copyOfRange(receivedData, 4, 16));
 
