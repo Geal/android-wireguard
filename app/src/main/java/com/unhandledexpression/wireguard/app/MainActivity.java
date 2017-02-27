@@ -10,6 +10,7 @@ import android.widget.TextView;
 
 import com.unhandledexpression.wireguard.R;
 import com.unhandledexpression.wireguard.VPN;
+import com.unhandledexpression.wireguard.protocol.Configuration;
 import com.unhandledexpression.wireguard.protocol.Hardcoded;
 import com.unhandledexpression.wireguard.protocol.State;
 
@@ -21,11 +22,15 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         final TextView txt = (TextView) findViewById(R.id.txt);
 
-        /*
         (new AsyncTask<Void, Void, Void>() {
             @Override
             protected Void doInBackground(Void[] objects) {
-                final State state = new State(Hardcoded.myPrivateKey, Hardcoded.serverPublicKey);
+                Configuration config = new Configuration(Hardcoded.myPrivateKey, Hardcoded.myIp,
+                Hardcoded.myIpPrefix, Hardcoded.route, Hardcoded.routePrefix,
+                null, 0,
+                Hardcoded.theirPublicKey, Hardcoded.serverName, Hardcoded.serverPort,
+                null);
+                final State state = new State(config);
 
                 Log.d("wg", "state: "+state.toString());
 

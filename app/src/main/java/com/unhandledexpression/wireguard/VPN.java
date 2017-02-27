@@ -5,6 +5,7 @@ import android.net.VpnService;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import com.unhandledexpression.wireguard.protocol.Configuration;
 import com.unhandledexpression.wireguard.protocol.Hardcoded;
 import com.unhandledexpression.wireguard.protocol.State;
 
@@ -54,7 +55,12 @@ public class VPN extends VpnService {
                             mInterface.getFileDescriptor());
 
 
-                    final State state = new State(Hardcoded.myPrivateKey, Hardcoded.serverPublicKey);
+                    Configuration config = new Configuration(Hardcoded.myPrivateKey, Hardcoded.myIp,
+                            Hardcoded.myIpPrefix, Hardcoded.route, Hardcoded.routePrefix,
+                            null, 0,
+                            Hardcoded.theirPublicKey, Hardcoded.serverName, Hardcoded.serverPort,
+                            null);
+                    final State state = new State(config);
 
                     Log.d("wg", "state: "+state.toString());
 

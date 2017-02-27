@@ -21,7 +21,9 @@ import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
 import java.security.DigestException;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.Random;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.ShortBufferException;
@@ -40,9 +42,9 @@ public class State {
     public static final byte[] cookieReplyHeader = { 3, 0, 0, 0 };
     public static final byte[] transportHeader   = { 4, 0, 0, 0 };
 
-    public              byte[]              preSharedKey;
+    public              Configuration       configuration;
     public              HandshakeState      handshakeState;
-    public              int                 myInitiatorIndex = 42;
+    public              int                 myIndex;
     public              int                 remoteMyInitiatorIndex;
     public              long                sendCounter = 0;
     public              long                receiveCounter = 0;
@@ -51,11 +53,15 @@ public class State {
     public              DatagramChannel     channel;
     public              CipherStatePair     handshakePair;
 
-    public State(String b64PrivateKey, String b64ServerPublicKey) {
-        byte[] data = Base64.decode(b64PrivateKey, Base64.DEFAULT);
-        byte[] pubData = Base64.decode(b64ServerPublicKey, Base64.DEFAULT);
+    public State(Configuration _configuration) {
+        configuration = _configuration;
+
+        byte[] data = Base64.decode(configuration.myPrivateKey, Base64.DEFAULT);
+        byte[] pubData = Base64.decode(configuration.theirPublicKey, Base64.DEFAULT);
         Log.d("wg", "server pubkey("+pubData.length+" bytes): "+Utils.hexdump(pubData));
 
+        Random rand = new SecureRandom();
+        myIndex = rand.nextInt();
 
         try {
             handshakeState = new HandshakeState("Noise_IK_25519_ChaChaPoly_BLAKE2s", HandshakeState.INITIATOR);
@@ -76,7 +82,7 @@ public class State {
         packet.order(ByteOrder.LITTLE_ENDIAN);
         packet.put(initiatorHeader);
 
-        packet.putInt(Hardcoded.mySenderIndex);
+        packet.putInt(myIndex);
 
         byte[] payload = new byte[108];
         handshakeState.writeMessage(payload, 0, tai, 0, tai.length);
