@@ -75,10 +75,22 @@ public class State {
     }
 
     public byte[] createInitiatorPacket() throws ShortBufferException {
+        ByteBuffer packet = ByteBuffer.allocate(148);
+        createInitiatorPacket(packet);
+        byte[] bytePacket = packet.array();
+        Log.i("wg", "generated packet ("+bytePacket.length+" bytes): "+ Utils.hexdump(bytePacket));
+
+        return bytePacket;
+    }
+
+    public void createInitiatorPacket(ByteBuffer packet) throws ShortBufferException {
+        if(packet.capacity() - packet.position() < 148) {
+            throw new ShortBufferException("initiator packet is 148 bytes");
+        }
+
         handshakeState.start();
 
         byte[] tai = Time.tai64n();
-        ByteBuffer packet = ByteBuffer.allocate(148);
         packet.order(ByteOrder.LITTLE_ENDIAN);
         packet.put(initiatorHeader);
 
@@ -114,12 +126,6 @@ public class State {
         } catch (DigestException e) {
             e.printStackTrace();
         }
-
-        byte[] bytePacket = packet.array();
-
-        Log.i("wg", "generated packet ("+bytePacket.length+" bytes): "+ Utils.hexdump(bytePacket));
-
-        return bytePacket;
     }
 
     public boolean consumeResponsePacket(byte[] responsePacket) {
