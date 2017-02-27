@@ -42,15 +42,13 @@ public class VPN extends VpnService {
                 try {
                     Log.d("wg", "starting VPN");
 
-                    //a. Configure the TUN and get the interface.
                     mInterface = builder.setSession("MyVPNService")
                             .addAddress(Hardcoded.myIp, Hardcoded.myIpPrefix)
                             .addDnsServer("8.8.8.8")
                             .addRoute(Hardcoded.route, Hardcoded.routePrefix).establish();
-                    //b. Packets to be sent are queued in this input stream.
+
                     FileInputStream in = new FileInputStream(
                             mInterface.getFileDescriptor());
-                    //b. Packets received need to be written to this output stream.
                     FileOutputStream out = new FileOutputStream(
                             mInterface.getFileDescriptor());
 
@@ -80,16 +78,13 @@ public class VPN extends VpnService {
                             continue;
                         }
 
-                        // Get iterator on set of keys with I/O to process
                         Iterator<SelectionKey> keyIter = selector.selectedKeys().iterator();
                         while (keyIter.hasNext()) {
-                            SelectionKey key = keyIter.next(); // Key is bit mask
+                            SelectionKey key = keyIter.next();
 
-                            // Client socket channel has pending data?
                             if (key.isValid() && key.isReadable()) {
                                 Log.d("wg", "RECEIVE");
 
-                                //while(true) {
                                 byte[] received = state.receive();
                                 if (received == null) {
                                     Log.d("wg", "received an empty array");
@@ -102,8 +97,6 @@ public class VPN extends VpnService {
                                 Thread.sleep(100);
                             }
 
-                            // Client socket channel is available for writing and
-                            // key is valid (i.e., channel not closed).
                             if (key.isValid() && key.isWritable()) {
                                 ByteBuffer packet = ByteBuffer.allocate(32767);
 
@@ -121,39 +114,7 @@ public class VPN extends VpnService {
 
                             keyIter.remove();
                         }
-                        /*
-                        // Read the outgoing packet from the input stream.
-                        int length = in.read(packet.array());
 
-                        if (length > 0) {
-                            Log.d("wg", "SEND "+length+" bytes");
-                            Log.d("wg", "hexdump:\n"+Utils.formatHexDump(packet.array(), 0, length));
-                            // Write the outgoing packet to the tunnel.
-                            packet.limit(length);
-                            state.send(packet.array(), length);
-                            packet.clear();
-                            // There might be more outgoing packets.
-                            idle = false;
-                        } else {
-                            Thread.sleep(100);
-
-                            continue;
-                        }
-                        Log.d("wg", "RECEIVE");
-
-                        //while(true) {
-                            byte[] received = state.receive();
-                        Log.d("wg", "hexdump:\n"+Utils.formatHexDump(received, 0, received.length));
-
-                        out.write(received, 0, received.length);
-                            Log.d("wg", "RECEIVED "+received.length+" bytes");
-                            Thread.sleep(100);
-
-                        //}
-                        */
-
-
-                        //Thread.sleep(100);
                     }
 
                 } catch (Exception e) {

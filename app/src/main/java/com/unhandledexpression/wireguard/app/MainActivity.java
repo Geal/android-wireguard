@@ -44,8 +44,8 @@ public class MainActivity extends AppCompatActivity {
                 return null;
             }
         }).execute();
-*/
-        createVPN();
+
+        //createVPN();
     }
 
     void createVPN() {

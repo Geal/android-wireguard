@@ -135,9 +135,7 @@ public class State {
                 handshakeState.getLocalKeyPair().getPublicKey(myPublicKey, 0);
                 Blake2sMessageDigest digest = new Blake2sMessageDigest(16, null);
 
-                //Log.d("wg", "hashing serverKey: "+Utils.hexdump(myPublicKey));
                 digest.update(myPublicKey);
-                //Log.d("wg", "hashing packet: "+Utils.hexdump(Arrays.copyOfRange(packet.array(), 0, 116)));
                 digest.update(responsePacket, 0, 60);
 
                 byte[] mac1 = Arrays.copyOfRange(responsePacket, 60, 76);
@@ -159,7 +157,7 @@ public class State {
 
                 Log.i("wg", "response has initiator="+initiatorIndex+" and responder="+responderIndex);
 
-                byte[] payload = new byte[0]; //whatever size
+                byte[] payload = new byte[0];
                 handshakeState.readMessage(responsePacket, 12, 48, payload, 0);
 
                 return true;
@@ -184,18 +182,12 @@ public class State {
             byte[] bytePacket = createInitiatorPacket();
             channel = DatagramChannel.open();
             channel.connect(new InetSocketAddress(InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort));
-            //DatagramPacket udpPacket = new DatagramPacket(bytePacket, bytePacket.length, channel.getRemoteAddress());
 
-            //channel.send(udpPacket);
             channel.write(ByteBuffer.wrap(bytePacket, 0, bytePacket.length));
             Log.i("wg", "sent packet");
             Log.d("wg", "initiator state after send: "+handshakeState.getAction());
 
 
-
-            //byte[] receivedData = new byte[92];
-            //DatagramPacket received = new DatagramPacket(receivedData, receivedData.length);
-            //channel.receive(received);
             ByteBuffer bb = ByteBuffer.allocate(92);
             int bytesRead = channel.read(bb);
 
@@ -214,18 +206,6 @@ public class State {
             send(new byte[0], 0);
             Log.d("wg", "sent keep alive");
 
-            /*
-            Log.d("wg", "sent, waiting for answer");
-
-            try {
-                byte[] keepAlive = receive();
-                Log.d("wg", "received: "+Utils.hexdump(keepAlive));
-
-            } catch (BadPaddingException e) {
-                e.printStackTrace();
-            }
-
-            */
 
         } catch (ShortBufferException e) {
             e.printStackTrace();
@@ -263,7 +243,6 @@ public class State {
                 index += copied;
 
                 Log.i("wg", "will send ("+(copied+16)+" bytes): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
-                //Log.i("wg", "complete:  "+Utils.hexdump(packet));
 
 
                 channel.write(ByteBuffer.wrap(packet, 0, copied+16));
