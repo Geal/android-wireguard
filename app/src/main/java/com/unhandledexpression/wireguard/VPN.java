@@ -5,6 +5,7 @@ import android.net.VpnService;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import com.southernstorm.noise.protocol.HandshakeState;
 import com.unhandledexpression.wireguard.protocol.Configuration;
 import com.unhandledexpression.wireguard.protocol.Hardcoded;
 import com.unhandledexpression.wireguard.protocol.State;
@@ -67,7 +68,7 @@ public class VPN extends VpnService {
                             null, 0,
                             Hardcoded.theirPublicKey, Hardcoded.serverName, Hardcoded.serverPort,
                             null);
-                    final State state = new State(config);
+                    final State state = new State(config, HandshakeState.INITIATOR);
 
                     Log.d("wg", "state: "+state.toString());
 

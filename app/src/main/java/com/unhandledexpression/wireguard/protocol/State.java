@@ -3,7 +3,9 @@ package com.unhandledexpression.wireguard.protocol;
 import com.southernstorm.noise.crypto.Blake2sMessageDigest;
 import com.southernstorm.noise.protocol.ChaChaPolyCipherState;
 import com.southernstorm.noise.protocol.CipherStatePair;
+import com.southernstorm.noise.protocol.DHState;
 import com.southernstorm.noise.protocol.HandshakeState;
+import com.southernstorm.noise.protocol.Noise;
 import com.unhandledexpression.wireguard.Utils;
 
 import android.util.Log;
@@ -11,6 +13,7 @@ import android.util.Log;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.Charset;
 import java.security.DigestException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -56,35 +59,45 @@ public class State {
     public              int                 myIndex;
     public              CipherStatePair     handshakePair;
 
-    public State(Configuration configuration) {
+    public State(Configuration configuration, int role) {
         Random rand = new SecureRandom();
         myIndex = rand.nextInt();
 
         try {
-            handshakeState = new HandshakeState("Noise_IK_25519_ChaChaPoly_BLAKE2s", HandshakeState.INITIATOR);
+            handshakeState = new HandshakeState("Noise_IK_25519_ChaChaPoly_BLAKE2s", role);
             handshakeState.setPrologue(PROLOGUE.getBytes(), 0, PROLOGUE.length());
 
             handshakeState.getLocalKeyPair().setPrivateKey(configuration.myPrivateKey, 0);
             handshakeState.getRemotePublicKey().setPublicKey(configuration.theirPublicKey,0);
+
+            handshakeState.start();
+
         } catch (NoSuchAlgorithmException e) {
             e.printStackTrace();
         }
     }
 
-    public State(byte[] myPrivateKey, byte[] theirPublicKey) {
+    public State(byte[] myPrivateKey, byte[] theirPublicKey, int role) {
 
         Random rand = new SecureRandom();
         myIndex = rand.nextInt();
 
         try {
-            handshakeState = new HandshakeState("Noise_IK_25519_ChaChaPoly_BLAKE2s", HandshakeState.INITIATOR);
+            handshakeState = new HandshakeState("Noise_IK_25519_ChaChaPoly_BLAKE2s", role);
             handshakeState.setPrologue(PROLOGUE.getBytes(), 0, PROLOGUE.length());
 
             handshakeState.getLocalKeyPair().setPrivateKey(myPrivateKey, 0);
             handshakeState.getRemotePublicKey().setPublicKey(theirPublicKey,0);
+
+            handshakeState.start();
+
         } catch (NoSuchAlgorithmException e) {
             e.printStackTrace();
         }
+    }
+
+    public void endHandshake() {
+        handshakePair = handshakeState.split();
     }
 
     public byte[] createInitiatorPacket() throws ShortBufferException {
@@ -101,7 +114,6 @@ public class State {
             throw new ShortBufferException("initiator packet is 148 bytes");
         }
 
-        handshakeState.start();
 
         byte[] tai = Time.tai64n();
         packet.order(ByteOrder.LITTLE_ENDIAN);
@@ -191,10 +203,13 @@ public class State {
 
                 Log.i("wg", "initiator packet has initiator="+myIndex);
 
+                Log.i("wg", "handshake state before decryption: "+handshakeState.getAction());
                 byte[] payload = new byte[12];
                 handshakeState.readMessage(initiatorPacket.array(), initiatorPacket.position(), INITIATOR_PAYLOAD_SIZE,
                         payload, 0);
                 Log.i("wg", "got timestamp: "+Utils.formatHexDump(payload, 0, 12));
+
+                Log.i("wg", "handshake state after decryption: "+handshakeState.getAction());
 
                 return true;
             } catch (DigestException e) {
@@ -225,8 +240,6 @@ public class State {
         if(packet.capacity() - packet.position() < RESPONDER_PACKET_SIZE) {
             throw new ShortBufferException("initiator packet is 148 bytes");
         }
-
-        handshakeState.start();
 
         packet.order(ByteOrder.LITTLE_ENDIAN);
         int position = packet.position();
@@ -444,8 +457,8 @@ public class State {
             bb.reset();
             if(consumeInitiatorPacket(bb)) {
                 Log.i("wg", "the initiator packet was correct");
-                handshakePair = handshakeState.split();
-                Log.d("wg", "responder state after split: "+handshakeState.getAction());
+                //handshakePair = handshakeState.split();
+                //Log.d("wg", "responder state after split: "+handshakeState.getAction());
             } else {
                 //FIXME: return an error here
                 Log.i("wg", "the initiator packet was incorrect");
@@ -458,7 +471,7 @@ public class State {
             bb.reset();
             if(consumeResponsePacket(bb)) {
                 Log.i("wg", "the response packet was correct");
-                handshakePair = handshakeState.split();
+                endHandshake();
                 Log.d("wg", "initiator state after split: "+handshakeState.getAction());
 
 
@@ -471,6 +484,70 @@ public class State {
             Log.d("wg", "invalid transport header packet");
             return null;
         }
+    }
 
+    public static void test() {
+        try {
+            Log.i("wg", "*** PROTOCOL TEST CASE ***");
+            DHState curve = Noise.createDH("25519");
+            byte[] alicePrivate = new byte[32];
+            byte[] alicePublic  = new byte[32];
+            byte[] bobPrivate   = new byte[32];
+            byte[] bobPublic    = new byte[32];
+
+            curve.generateKeyPair();
+            curve.getPrivateKey(alicePrivate, 0);
+            curve.getPublicKey(alicePublic, 0);
+
+            curve.generateKeyPair();
+            curve.getPrivateKey(bobPrivate, 0);
+            curve.getPublicKey(bobPublic, 0);
+
+            Log.i("wg", "generated keys");
+
+
+            State aliceState = new State(alicePrivate, bobPublic, HandshakeState.INITIATOR);
+            State bobState   = new State(bobPrivate, alicePublic, HandshakeState.RESPONDER);
+
+            Log.i("wg", "generated states");
+
+            byte[] initiatorPacket = aliceState.createInitiatorPacket();
+
+            Log.i("wg", "Alice created initiator packet:\n"+Utils.formatHexDump(initiatorPacket, 0, initiatorPacket.length));
+
+
+            byte[] tai = bobState.receive(ByteBuffer.wrap(initiatorPacket), initiatorPacket.length);
+            assert tai.length == 12;
+
+            Log.i("wg", "Bob received packet");
+
+            byte[] responsePacket = bobState.createResponsePacket();
+            bobState.endHandshake();
+
+            Log.i("wg", "Bob created response packet:\n"+Utils.formatHexDump(responsePacket, 0, responsePacket.length));
+
+            byte[] empty = aliceState.receive(ByteBuffer.wrap(responsePacket), responsePacket.length);
+            assert empty.length == 0;
+
+            byte[] message = "hello world!".getBytes();
+            byte[] packet  = aliceState.send(message, 0, message.length);
+
+            Log.i("wg", "Alice sends packet:\n"+Utils.formatHexDump(packet, 0, packet.length));
+
+            byte[] received = bobState.receive(ByteBuffer.wrap(packet), packet.length);
+            Log.i("wg", "Bob decrypted:\n"+new String(received, Charset.forName("UTF-8")));
+
+            assert message == received;
+
+            Log.i("wg", "*** DONE ***");
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (ShortBufferException e) {
+            e.printStackTrace();
+        } catch (BadPaddingException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

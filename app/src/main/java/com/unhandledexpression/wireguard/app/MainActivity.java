@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.widget.TextView;
 
+import com.southernstorm.noise.protocol.HandshakeState;
 import com.unhandledexpression.wireguard.R;
 import com.unhandledexpression.wireguard.VPN;
 import com.unhandledexpression.wireguard.protocol.Configuration;
@@ -32,18 +33,24 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         final TextView txt = (TextView) findViewById(R.id.txt);
 
-        if(false) {
+        if(true) {
+            State.test();
+
+            /*
             (new AsyncTask<Void, Void, Void>() {
                 @Override
                 protected Void doInBackground(Void[] objects) {
+                    State.test();
+
                     Configuration config = new Configuration(Hardcoded.myPrivateKey, Hardcoded.myIp,
                             Hardcoded.myIpPrefix, Hardcoded.route, Hardcoded.routePrefix,
                             null, 0,
                             Hardcoded.theirPublicKey, Hardcoded.serverName, Hardcoded.serverPort,
                             null);
-                    final State state = new State(config);
+                    final State state = new State(config, HandshakeState.INITIATOR);
 
                     Log.d("wg", "state: " + state.toString());
+
 
                     DatagramChannel channel = null;
                     try {
@@ -87,6 +94,7 @@ public class MainActivity extends AppCompatActivity {
                     return null;
                 }
             }).execute();
+            */
         } else {
             createVPN();
         }
