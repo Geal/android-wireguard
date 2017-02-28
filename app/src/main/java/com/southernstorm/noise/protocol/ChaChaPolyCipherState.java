@@ -39,7 +39,7 @@ public class ChaChaPolyCipherState implements CipherState {
 	private int[] input;
 	private int[] output;
 	private byte[] polyKey;
-	public long n;
+	private long n;
 	private boolean haskey;
 	
 	/**

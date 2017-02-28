@@ -10,11 +10,8 @@ import android.util.Base64;
 import android.util.Log;
 
 import java.io.IOException;
-import java.net.SocketException;
-import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.channels.DatagramChannel;
 import java.security.DigestException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -23,8 +20,6 @@ import java.util.Random;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.ShortBufferException;
-
-import static java.lang.Math.min;
 
 
 /**
@@ -394,18 +389,20 @@ public class State {
         bb.putInt(transportHeader);
         bb.putInt(theirIndex);
 
-        long counter = sender.n;
-        bb.putLong(counter);
+        //long counter = sender.n;
+        bb.putLong(sendCounter);
 
         byte[] packet = bb.array();
-        Log.i("wg", "header with counter("+counter+"): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, 16)));
+        Log.i("wg", "header with counter("+sendCounter+"): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, 16)));
         Log.i("wg", "to copy: "+length);
+        sender.setNonce(sendCounter);
         int copied = sender.encryptWithAd(null,
                 data, offset,
                 packet, HEADER_SIZE + INDEX_SIZE + COUNTER_SIZE, length);
 
-        Log.i("wg", "will send["+counter+"] ("+(copied+16)+" bytes): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
+        Log.i("wg", "will send["+sendCounter+"] ("+(copied+16)+" bytes): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
 
+        sendCounter++;
         return Arrays.copyOfRange(packet, 0, copied+16);
     }
 
@@ -417,11 +414,17 @@ public class State {
         if (header == transportHeader) {
 
             int remoteIndex = bb.getInt();
-            receiveCounter  = bb.getLong();
+            //FIXME: check if it is in the acceptable range
+            long currentReceiveCounter  = bb.getLong();
             Log.d("wg", "got remote index: "+remoteIndex);
-            Log.d("wg", "got receive counter: "+receiveCounter);
+            Log.d("wg", "got receive counter: "+currentReceiveCounter);
+            Log.d("wg", "last receive counter: "+receiveCounter);
+            //FIXME: what if the order is wrong?
+            receiveCounter = currentReceiveCounter;
+
             ChaChaPolyCipherState receiver = (ChaChaPolyCipherState) handshakePair.getReceiver();
-                    Log.d("wg", "handshake pair receiver counter: "+ receiver.n);
+            //Log.d("wg", "handshake pair receiver counter: "+ receiver.n);
+            receiver.setNonce(currentReceiveCounter);
 
             byte[] payload = new byte[bytesRead - HEADER_SIZE - INDEX_SIZE - COUNTER_SIZE - MAC_SIZE];
             int decrypted = handshakePair.getReceiver().decryptWithAd(null, bb.array(), bb.position(),
