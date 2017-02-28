@@ -57,12 +57,10 @@ public class State {
 
     public              Configuration       configuration;
     public              HandshakeState      handshakeState;
-    public              int                 myIndex;
-    public              int                 remoteMyInitiatorIndex;
     public              long                sendCounter = 0;
     public              long                receiveCounter = 0;
-    public              int                 responderIndex;
-    public              int                 initiatorIndex;
+    public              int                 theirIndex;
+    public              int                 myIndex;
     public              CipherStatePair     handshakePair;
 
     public State(Configuration _configuration) {
@@ -148,7 +146,7 @@ public class State {
         initiatorPacket.order(ByteOrder.LITTLE_ENDIAN);
         initiatorPacket.mark();
         int header = initiatorPacket.getInt();
-        if(header == responseHeader) {
+        if(header == initiatorHeader) {
             //FIXME: check the packet's length
 
             try {
@@ -184,11 +182,11 @@ public class State {
                 initiatorPacket.position(position+4);
                 Log.d("wg", "offset after header: "+initiatorPacket.position());
 
-                initiatorIndex = initiatorPacket.getInt();
+                myIndex = initiatorPacket.getInt();
                 Log.d("wg", "offset after index: "+initiatorPacket.position());
 
 
-                Log.i("wg", "initiator packet has initiator="+initiatorIndex);
+                Log.i("wg", "initiator packet has initiator="+myIndex);
 
                 byte[] payload = new byte[12];
                 handshakeState.readMessage(initiatorPacket.array(), initiatorPacket.position(), INITIATOR_PAYLOAD_SIZE,
@@ -210,6 +208,7 @@ public class State {
             return false;
         }
     }
+
 
     public boolean consumeResponsePacket(byte[] responsePacket) {
         return consumeResponsePacket(ByteBuffer.wrap(responsePacket));
@@ -257,12 +256,12 @@ public class State {
                 responsePacket.position(position+4);
                 Log.d("wg", "offset after header: "+responsePacket.position());
 
-                responderIndex = responsePacket.getInt();
-                initiatorIndex = responsePacket.getInt();
+                theirIndex = responsePacket.getInt();
+                myIndex = responsePacket.getInt();
                 Log.d("wg", "offset after indexes: "+responsePacket.position());
 
 
-                Log.i("wg", "response has initiator="+initiatorIndex+" and responder="+responderIndex);
+                Log.i("wg", "response has initiator="+myIndex+" and responder="+theirIndex);
 
                 byte[] payload = new byte[0];
                 handshakeState.readMessage(responsePacket.array(), responsePacket.position(), RESPONDER_PAYLOAD_SIZE,
@@ -334,7 +333,7 @@ public class State {
 
         bb.order(ByteOrder.LITTLE_ENDIAN);
         bb.putInt(transportHeader);
-        bb.putInt(responderIndex);
+        bb.putInt(theirIndex);
 
         long counter = sender.n;
         bb.putLong(counter);
