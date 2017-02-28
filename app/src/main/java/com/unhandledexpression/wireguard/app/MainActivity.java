@@ -14,6 +14,11 @@ import com.unhandledexpression.wireguard.protocol.Configuration;
 import com.unhandledexpression.wireguard.protocol.Hardcoded;
 import com.unhandledexpression.wireguard.protocol.State;
 
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.channels.DatagramChannel;
+
 public class MainActivity extends AppCompatActivity {
 
     @Override
@@ -35,13 +40,22 @@ public class MainActivity extends AppCompatActivity {
 
                     Log.d("wg", "state: " + state.toString());
 
-                    state.initiate();
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            txt.setText(state.toString());
-                        }
-                    });
+                    DatagramChannel channel = null;
+                    try {
+                        channel = DatagramChannel.open();
+                        channel.connect(new InetSocketAddress(
+                                InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort));
+                        state.initiate(channel);
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                txt.setText(state.toString());
+                            }
+                        });
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+
                     return null;
                 }
             }).execute();

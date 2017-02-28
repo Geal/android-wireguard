@@ -10,10 +10,6 @@ import android.util.Base64;
 import android.util.Log;
 
 import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
@@ -218,12 +214,11 @@ public class State {
         }
     }
 
-    public void initiate() {
+    public void initiate(DatagramChannel _channel) {
+        channel = _channel;
         try {
             Log.d("wg", "initiator state before send: "+handshakeState.getAction());
             byte[] bytePacket = createInitiatorPacket();
-            channel = DatagramChannel.open();
-            channel.connect(new InetSocketAddress(InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort));
 
             channel.write(ByteBuffer.wrap(bytePacket, 0, bytePacket.length));
             Log.i("wg", "sent packet");

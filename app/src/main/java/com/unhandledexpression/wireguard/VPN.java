@@ -11,7 +11,10 @@ import com.unhandledexpression.wireguard.protocol.State;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.Iterator;
@@ -62,8 +65,12 @@ public class VPN extends VpnService {
 
                     Log.d("wg", "state: "+state.toString());
 
-                    state.initiate();
-                    protect(state.channel.socket());
+                    DatagramChannel channel = DatagramChannel.open();
+                    channel.connect(new InetSocketAddress(
+                            InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort));
+
+                    protect(channel.socket());
+                    state.initiate(channel);
                     state.channel.configureBlocking(false);
 
 
