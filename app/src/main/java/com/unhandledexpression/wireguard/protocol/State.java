@@ -6,7 +6,6 @@ import com.southernstorm.noise.protocol.CipherStatePair;
 import com.southernstorm.noise.protocol.HandshakeState;
 import com.unhandledexpression.wireguard.Utils;
 
-import android.util.Base64;
 import android.util.Log;
 
 import java.io.IOException;
@@ -50,7 +49,6 @@ public class State {
     // maybe make this configurable
     public static final int    MAX_PACKET_SIZE        = 512;
 
-    public              Configuration       configuration;
     public              HandshakeState      handshakeState;
     public              long                sendCounter = 0;
     public              long                receiveCounter = 0;
@@ -58,12 +56,22 @@ public class State {
     public              int                 myIndex;
     public              CipherStatePair     handshakePair;
 
-    public State(Configuration _configuration) {
-        configuration = _configuration;
+    public State(Configuration configuration) {
+        Random rand = new SecureRandom();
+        myIndex = rand.nextInt();
 
-        byte[] data = Base64.decode(configuration.myPrivateKey, Base64.DEFAULT);
-        byte[] pubData = Base64.decode(configuration.theirPublicKey, Base64.DEFAULT);
-        Log.d("wg", "server pubkey("+pubData.length+" bytes): "+Utils.hexdump(pubData));
+        try {
+            handshakeState = new HandshakeState("Noise_IK_25519_ChaChaPoly_BLAKE2s", HandshakeState.INITIATOR);
+            handshakeState.setPrologue(PROLOGUE.getBytes(), 0, PROLOGUE.length());
+
+            handshakeState.getLocalKeyPair().setPrivateKey(configuration.myPrivateKey, 0);
+            handshakeState.getRemotePublicKey().setPublicKey(configuration.theirPublicKey,0);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public State(byte[] myPrivateKey, byte[] theirPublicKey) {
 
         Random rand = new SecureRandom();
         myIndex = rand.nextInt();
@@ -72,8 +80,8 @@ public class State {
             handshakeState = new HandshakeState("Noise_IK_25519_ChaChaPoly_BLAKE2s", HandshakeState.INITIATOR);
             handshakeState.setPrologue(PROLOGUE.getBytes(), 0, PROLOGUE.length());
 
-            handshakeState.getLocalKeyPair().setPrivateKey(data, 0);
-            handshakeState.getRemotePublicKey().setPublicKey(pubData,0);
+            handshakeState.getLocalKeyPair().setPrivateKey(myPrivateKey, 0);
+            handshakeState.getRemotePublicKey().setPublicKey(theirPublicKey,0);
         } catch (NoSuchAlgorithmException e) {
             e.printStackTrace();
         }

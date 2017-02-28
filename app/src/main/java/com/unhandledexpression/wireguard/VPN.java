@@ -53,6 +53,7 @@ public class VPN extends VpnService {
                     mInterface = builder.setSession("MyVPNService")
                             .addAddress(Hardcoded.myIp, Hardcoded.myIpPrefix)
                             .addDnsServer("8.8.8.8")
+                            .addRoute("208.64.38.0", 24)
                             .addRoute(Hardcoded.route, Hardcoded.routePrefix).establish();
 
                     FileInputStream in = new FileInputStream(
