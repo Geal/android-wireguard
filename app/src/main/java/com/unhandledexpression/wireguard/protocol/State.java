@@ -327,7 +327,7 @@ public class State {
         bb.mark();
         //ByteBuffer bh = ByteBuffer.wrap(Arrays.copyOfRange(bb.array(), 0, 4));
         int header = bb.getInt();
-        if(header == transportHeader) {
+        if (header == transportHeader) {
 
             //ByteBuffer bb2 = ByteBuffer.wrap(Arrays.copyOfRange(receivedData, 4, 16));
 
@@ -347,7 +347,19 @@ public class State {
             return payload;
 
             //FIXME: check the packet's length
+        } else if (header == responseHeader) {
+            bb.reset();
+            if(consumeResponsePacket(bb)) {
+                Log.i("wg", "the response packet was correct");
+                handshakePair = handshakeState.split();
+                Log.d("wg", "initiator state after split: "+handshakeState.getAction());
 
+
+            } else {
+                //FIXME: return an error here
+                Log.i("wg", "the response packet was incorrect");
+            }
+            return null;
         } else {
             Log.d("wg", "invalid transport header packet");
             return null;

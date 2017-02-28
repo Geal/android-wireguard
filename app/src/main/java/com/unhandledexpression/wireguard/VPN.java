@@ -13,6 +13,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
@@ -70,9 +71,25 @@ public class VPN extends VpnService {
                             InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort));
 
                     protect(channel.socket());
-                    state.initiate(channel);
-                    state.channel.configureBlocking(false);
 
+                    byte[] initiatorPacket = state.createInitiatorPacket();
+                    channel.write(ByteBuffer.wrap(initiatorPacket));
+
+                    ByteBuffer responsePacket = ByteBuffer.allocate(32767);
+                    SocketAddress addr = channel.receive(responsePacket);
+                    Log.d("wg", "received packet from "+addr);
+                    Log.d("wg", "response buffer before flip: "+responsePacket.position());
+                    responsePacket.flip();
+                    Log.d("wg", "response buffer after flip: position="+responsePacket.position());
+                    Log.d("wg", "response buffer after flip: limit()="+responsePacket.limit());
+                    state.receive(responsePacket, responsePacket.limit());
+
+                    state.channel = channel;
+                    Log.d("wg", "sending keep alive");
+                    //keep alive
+                    state.send(new byte[0], 0);
+
+                    state.channel.configureBlocking(false);
 
                     Selector selector = Selector.open();
                     state.channel.register(selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
