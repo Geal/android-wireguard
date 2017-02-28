@@ -63,7 +63,6 @@ public class State {
     public              long                receiveCounter = 0;
     public              int                 responderIndex;
     public              int                 initiatorIndex;
-    public              DatagramChannel     channel;
     public              CipherStatePair     handshakePair;
 
     public State(Configuration _configuration) {
@@ -214,6 +213,7 @@ public class State {
         }
     }
 
+    /*
     public void initiate(DatagramChannel _channel) {
         channel = _channel;
         try {
@@ -255,28 +255,8 @@ public class State {
             e.printStackTrace();
         }
     }
+    */
 
-    public void send(byte[] data, int length) throws IOException {
-        int maxPayloadSize = MAX_PACKET_SIZE - HEADER_SIZE - INDEX_SIZE - COUNTER_SIZE - MAC_SIZE;
-        int index = 0;
-
-        while(index < length) {
-            int toCopy = min(maxPayloadSize, data.length - index);
-
-            try {
-                byte[] packet = send(data, index, toCopy);
-                int bytesWritten = channel.write(ByteBuffer.wrap(packet));
-                if(bytesWritten != packet.length) {
-                    Log.d("wg", "error writing packet");
-                }
-
-                index += toCopy;
-            } catch (ShortBufferException e) {
-                e.printStackTrace();
-            }
-        }
-
-    }
     public byte[] send(byte[] data, int offset, int length) throws IOException, ShortBufferException {
         ChaChaPolyCipherState sender = (ChaChaPolyCipherState) handshakePair.getSender();
         ByteBuffer bb = ByteBuffer.allocate(MAX_PACKET_SIZE);
@@ -298,23 +278,6 @@ public class State {
         Log.i("wg", "will send["+counter+"] ("+(copied+16)+" bytes): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
 
         return Arrays.copyOfRange(packet, 0, copied+16);
-    }
-
-    public byte[] receive() throws IOException, ShortBufferException, BadPaddingException {
-
-        ByteBuffer bb = ByteBuffer.allocate(32767);
-        int bytesRead = channel.read(bb);
-        Log.i("wg", "received("+bytesRead+" bytes): ");
-        Log.d("wg", Utils.formatHexDump(bb.array(), 0, bytesRead));
-        if(bytesRead == 0) {
-            return null;
-        }
-
-        bb.flip();
-        //what about when the buffer already has some data?
-        //bb.limit(bytesRead);
-
-        return  receive(bb, bytesRead);
     }
 
     public byte[] receive(ByteBuffer bb, int bytesRead) throws IOException, ShortBufferException, BadPaddingException {

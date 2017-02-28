@@ -62,10 +62,13 @@ public class MainActivity extends AppCompatActivity {
                         Log.d("wg", "response buffer after flip: limit()="+responsePacket.limit());
                         state.receive(responsePacket, responsePacket.limit());
 
-                        state.channel = channel;
                         Log.d("wg", "sending keep alive");
                         //keep alive
-                        state.send(new byte[0], 0);
+                        byte[] keepAlivePacket = state.send(new byte[0], 0, 0);
+                        int written = channel.write(ByteBuffer.wrap(keepAlivePacket));
+                        if(written != keepAlivePacket.length) {
+                            Log.d("wg", "error writing packet");
+                        }
 
                         runOnUiThread(new Runnable() {
                             @Override

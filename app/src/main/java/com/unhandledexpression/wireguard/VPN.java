@@ -88,7 +88,6 @@ public class VPN extends VpnService {
                     Log.d("wg", "response buffer after flip: limit()="+responsePacket.limit());
                     state.receive(responsePacket, responsePacket.limit());
 
-                    state.channel = channel;
                     Log.d("wg", "sending keep alive");
                     //keep alive
                     byte[] keepAlivePacket = state.send(new byte[0], 0, 0);
@@ -97,10 +96,10 @@ public class VPN extends VpnService {
                         Log.d("wg", "error writing packet");
                     }
 
-                    state.channel.configureBlocking(false);
+                    channel.configureBlocking(false);
 
                     Selector selector = Selector.open();
-                    state.channel.register(selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+                    channel.register(selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
 
 
                     Log.d("wg", "starting loop");
