@@ -262,39 +262,47 @@ public class State {
     }
 
     public void send(byte[] data, int length) throws IOException {
+        int maxPayloadSize = MAX_PACKET_SIZE - HEADER_SIZE - INDEX_SIZE - COUNTER_SIZE - MAC_SIZE;
         int index = 0;
-        ChaChaPolyCipherState sender = (ChaChaPolyCipherState) handshakePair.getSender();
-        ByteBuffer bb = ByteBuffer.allocate(MAX_PACKET_SIZE);
-        while(index <= length) {
-            int maxPayloadSize = MAX_PACKET_SIZE - HEADER_SIZE - INDEX_SIZE - COUNTER_SIZE - MAC_SIZE;
 
-            bb.order(ByteOrder.LITTLE_ENDIAN);
-            bb.putInt(transportHeader);
-            bb.putInt(responderIndex);
+        while(index < length) {
+            int toCopy = min(maxPayloadSize, data.length - index);
 
-            bb.putLong(sender.n);
-
-            byte[] packet = bb.array();
-            Log.i("wg", "header with counter: "+Utils.hexdump(Arrays.copyOfRange(packet, 0, 16)));
-             int toCopy = min(maxPayloadSize, data.length - index);
-            Log.i("wg", "to copy: "+toCopy);
             try {
-                int copied = sender.encryptWithAd(null,
-                        data, index,
-                        packet, HEADER_SIZE + INDEX_SIZE + COUNTER_SIZE, toCopy);
-                index += copied;
+                byte[] packet = send(data, index, toCopy);
+                int bytesWritten = channel.write(ByteBuffer.wrap(packet));
+                if(bytesWritten != packet.length) {
+                    Log.d("wg", "error writing packet");
+                }
 
-                Log.i("wg", "will send ("+(copied+16)+" bytes): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
-
-
-                channel.write(ByteBuffer.wrap(packet, 0, copied+16));
-                Log.i("wg", "sent packet: "+sender.n+" -> "+(copied+16)+" bytes");
+                index += toCopy;
             } catch (ShortBufferException e) {
                 e.printStackTrace();
             }
-            bb.reset();
-
         }
+
+    }
+    public byte[] send(byte[] data, int offset, int length) throws IOException, ShortBufferException {
+        ChaChaPolyCipherState sender = (ChaChaPolyCipherState) handshakePair.getSender();
+        ByteBuffer bb = ByteBuffer.allocate(MAX_PACKET_SIZE);
+
+        bb.order(ByteOrder.LITTLE_ENDIAN);
+        bb.putInt(transportHeader);
+        bb.putInt(responderIndex);
+
+        long counter = sender.n;
+        bb.putLong(counter);
+
+        byte[] packet = bb.array();
+        Log.i("wg", "header with counter("+counter+"): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, 16)));
+        Log.i("wg", "to copy: "+length);
+        int copied = sender.encryptWithAd(null,
+                data, offset,
+                packet, HEADER_SIZE + INDEX_SIZE + COUNTER_SIZE, length);
+
+        Log.i("wg", "will send["+counter+"] ("+(copied+16)+" bytes): "+Utils.hexdump(Arrays.copyOfRange(packet, 0, copied+16)));
+
+        return Arrays.copyOfRange(packet, 0, copied+16);
     }
 
     public byte[] receive() throws IOException, ShortBufferException, BadPaddingException {
