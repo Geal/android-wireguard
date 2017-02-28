@@ -17,7 +17,12 @@ import com.unhandledexpression.wireguard.protocol.State;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+
+import javax.crypto.BadPaddingException;
+import javax.crypto.ShortBufferException;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -45,7 +50,23 @@ public class MainActivity extends AppCompatActivity {
                         channel = DatagramChannel.open();
                         channel.connect(new InetSocketAddress(
                                 InetAddress.getByName(Hardcoded.serverName), Hardcoded.serverPort));
-                        state.initiate(channel);
+                        byte[] initiatorPacket = state.createInitiatorPacket();
+                        channel.write(ByteBuffer.wrap(initiatorPacket));
+
+                        ByteBuffer responsePacket = ByteBuffer.allocate(32767);
+                        SocketAddress addr = channel.receive(responsePacket);
+                        Log.d("wg", "received packet from "+addr);
+                        Log.d("wg", "response buffer before flip: "+responsePacket.position());
+                        responsePacket.flip();
+                        Log.d("wg", "response buffer after flip: position="+responsePacket.position());
+                        Log.d("wg", "response buffer after flip: limit()="+responsePacket.limit());
+                        state.receive(responsePacket, responsePacket.limit());
+
+                        state.channel = channel;
+                        Log.d("wg", "sending keep alive");
+                        //keep alive
+                        state.send(new byte[0], 0);
+
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
@@ -53,6 +74,10 @@ public class MainActivity extends AppCompatActivity {
                             }
                         });
                     } catch (IOException e) {
+                        e.printStackTrace();
+                    } catch (ShortBufferException e) {
+                        e.printStackTrace();
+                    } catch (BadPaddingException e) {
                         e.printStackTrace();
                     }
 
