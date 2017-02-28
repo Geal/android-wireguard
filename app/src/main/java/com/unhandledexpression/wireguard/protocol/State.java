@@ -52,12 +52,14 @@ public class State {
     // maybe make this configurable
     public static final int    MAX_PACKET_SIZE        = 512;
 
-    public              HandshakeState      handshakeState;
-    public              long                sendCounter = 0;
-    public              long                receiveCounter = 0;
-    public              int                 theirIndex;
-    public              int                 myIndex;
-    public              CipherStatePair     handshakePair;
+    public HandshakeState  handshakeState;
+    public long            sendCounter    = 0;
+    public long            receiveCounter = 0;
+    public int             theirIndex;
+    public int             myIndex;
+    public CipherStatePair handshakePair;
+    public byte[]          presharedKey   = null;
+    public byte[]          currentCookie  = null;
 
     public State(Configuration configuration, int role) {
         Random rand = new SecureRandom();
@@ -125,6 +127,15 @@ public class State {
         return presharedKey != null;
     }
 
+    public boolean hasCookie() {
+        return currentCookie != null;
+    }
+
+    public boolean isCookieExpired() {
+        //FIXME: implement timeouts
+        return false;
+    }
+
     public byte[] createInitiatorPacket() throws ShortBufferException {
         ByteBuffer packet = ByteBuffer.allocate(INITIATOR_PACKET_SIZE);
         createInitiatorPacket(packet);
@@ -176,8 +187,15 @@ public class State {
 
             byte[] mac1 = digest.digest();
             packet.put(mac1, 0, MAC_SIZE);
-            Log.i("wg", "complete mac1: "+ Utils.hexdump(mac1));
-            Log.i("wg", "reduced mac1: "+ Utils.hexdump(Arrays.copyOfRange(mac1, 0, MAC_SIZE)));
+            Log.i("wg", "complete mac1: " + Utils.hexdump(mac1));
+            Log.i("wg", "reduced mac1: " + Utils.hexdump(Arrays.copyOfRange(mac1, 0, MAC_SIZE)));
+
+            if(hasCookie() && !isCookieExpired()) {
+                Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, currentCookie);
+                digest2.update(packet.array(), 0, HEADER_SIZE+INDEX_SIZE+INITIATOR_PAYLOAD_SIZE+MAC_SIZE);
+                byte[] mac2 = digest.digest();
+                packet.put(mac2, 0, MAC_SIZE);
+            }
         } catch (DigestException e) {
             e.printStackTrace();
         }
@@ -220,12 +238,18 @@ public class State {
                     Log.d("wg", "invalid mac1");
                     return false;
                 }
-                //FIXME: mac2 check deactivated for now
-                if(false) {
+
+                if(hasCookie()) {
+                    Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, currentCookie);
+                    digest2.update(initiatorPacket.array(), initiatorPacket.position(),
+                            HEADER_SIZE+INDEX_SIZE+INITIATOR_PAYLOAD_SIZE+MAC_SIZE);
                     byte[] mac2 = Arrays.copyOfRange(initiatorPacket.array(),
-                            initiatorPacket.position()+HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE + MAC_SIZE,
-                            initiatorPacket.position()+HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE + MAC_SIZE*2);
-                    //???
+                            initiatorPacket.position() + HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE + MAC_SIZE,
+                            initiatorPacket.position() + HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE + MAC_SIZE*2);
+                    if (!Arrays.equals(mac2, digest.digest())) {
+                        Log.d("wg", "invalid mac1");
+                        return false;
+                    }
                 }
 
                 //now that the MACs are validated, advance past the header
@@ -319,8 +343,15 @@ public class State {
 
             byte[] mac1 = digest.digest();
             packet.put(mac1, 0, MAC_SIZE);
-            Log.i("wg", "complete mac1: "+ Utils.hexdump(mac1));
-            Log.i("wg", "reduced mac1: "+ Utils.hexdump(Arrays.copyOfRange(mac1, 0, MAC_SIZE)));
+            Log.i("wg", "complete mac1: " + Utils.hexdump(mac1));
+            Log.i("wg", "reduced mac1: " + Utils.hexdump(Arrays.copyOfRange(mac1, 0, MAC_SIZE)));
+
+            if(hasCookie() && !isCookieExpired()) {
+                Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, currentCookie);
+                digest2.update(packet.array(), 0, HEADER_SIZE+INDEX_SIZE*2+RESPONDER_PAYLOAD_SIZE+MAC_SIZE);
+                byte[] mac2 = digest.digest();
+                packet.put(mac2, 0, MAC_SIZE);
+            }
         } catch (DigestException e) {
             e.printStackTrace();
         }
@@ -365,12 +396,17 @@ public class State {
                     return false;
                 }
 
-                //FIXME: mac2 check deactivated for now
-                if(false) {
+                if(hasCookie()) {
+                    Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, currentCookie);
+                    digest2.update(responsePacket.array(), responsePacket.position(),
+                            HEADER_SIZE+INDEX_SIZE*2+RESPONDER_PAYLOAD_SIZE+MAC_SIZE);
                     byte[] mac2 = Arrays.copyOfRange(responsePacket.array(),
-                            responsePacket.position()+HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE + MAC_SIZE,
-                            responsePacket.position()+HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE + MAC_SIZE*2);
-                    //???
+                            responsePacket.position() + HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE + MAC_SIZE,
+                            responsePacket.position() + HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE + MAC_SIZE*2);
+                    if (!Arrays.equals(mac2, digest.digest())) {
+                        Log.d("wg", "invalid mac1");
+                        return false;
+                    }
                 }
 
                 //now that the MACs are validated, advance past the header
