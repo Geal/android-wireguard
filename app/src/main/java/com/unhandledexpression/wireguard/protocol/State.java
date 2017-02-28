@@ -193,7 +193,7 @@ public class State {
             if(hasCookie() && !isCookieExpired()) {
                 Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, currentCookie);
                 digest2.update(packet.array(), 0, HEADER_SIZE+INDEX_SIZE+INITIATOR_PAYLOAD_SIZE+MAC_SIZE);
-                byte[] mac2 = digest.digest();
+                byte[] mac2 = digest2.digest();
                 packet.put(mac2, 0, MAC_SIZE);
             }
         } catch (DigestException e) {
@@ -246,7 +246,7 @@ public class State {
                     byte[] mac2 = Arrays.copyOfRange(initiatorPacket.array(),
                             initiatorPacket.position() + HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE + MAC_SIZE,
                             initiatorPacket.position() + HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE + MAC_SIZE*2);
-                    if (!Arrays.equals(mac2, digest.digest())) {
+                    if (!Arrays.equals(mac2, digest2.digest())) {
                         Log.d("wg", "invalid mac1");
                         return false;
                     }
@@ -349,7 +349,7 @@ public class State {
             if(hasCookie() && !isCookieExpired()) {
                 Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, currentCookie);
                 digest2.update(packet.array(), 0, HEADER_SIZE+INDEX_SIZE*2+RESPONDER_PAYLOAD_SIZE+MAC_SIZE);
-                byte[] mac2 = digest.digest();
+                byte[] mac2 = digest2.digest();
                 packet.put(mac2, 0, MAC_SIZE);
             }
         } catch (DigestException e) {
@@ -403,7 +403,7 @@ public class State {
                     byte[] mac2 = Arrays.copyOfRange(responsePacket.array(),
                             responsePacket.position() + HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE + MAC_SIZE,
                             responsePacket.position() + HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE + MAC_SIZE*2);
-                    if (!Arrays.equals(mac2, digest.digest())) {
+                    if (!Arrays.equals(mac2, digest2.digest())) {
                         Log.d("wg", "invalid mac1");
                         return false;
                     }
