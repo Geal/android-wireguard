@@ -22,30 +22,32 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         final TextView txt = (TextView) findViewById(R.id.txt);
 
-        (new AsyncTask<Void, Void, Void>() {
-            @Override
-            protected Void doInBackground(Void[] objects) {
-                Configuration config = new Configuration(Hardcoded.myPrivateKey, Hardcoded.myIp,
-                Hardcoded.myIpPrefix, Hardcoded.route, Hardcoded.routePrefix,
-                null, 0,
-                Hardcoded.theirPublicKey, Hardcoded.serverName, Hardcoded.serverPort,
-                null);
-                final State state = new State(config);
+        if(false) {
+            (new AsyncTask<Void, Void, Void>() {
+                @Override
+                protected Void doInBackground(Void[] objects) {
+                    Configuration config = new Configuration(Hardcoded.myPrivateKey, Hardcoded.myIp,
+                            Hardcoded.myIpPrefix, Hardcoded.route, Hardcoded.routePrefix,
+                            null, 0,
+                            Hardcoded.theirPublicKey, Hardcoded.serverName, Hardcoded.serverPort,
+                            null);
+                    final State state = new State(config);
 
-                Log.d("wg", "state: "+state.toString());
+                    Log.d("wg", "state: " + state.toString());
 
-                state.initiate();
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        txt.setText(state.toString());
-                    }
-                });
-                return null;
-            }
-        }).execute();
-
-        //createVPN();
+                    state.initiate();
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            txt.setText(state.toString());
+                        }
+                    });
+                    return null;
+                }
+            }).execute();
+        } else {
+            createVPN();
+        }
     }
 
     void createVPN() {
