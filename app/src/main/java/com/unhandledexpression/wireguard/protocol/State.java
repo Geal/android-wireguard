@@ -209,6 +209,65 @@ public class State {
         }
     }
 
+    public byte[] createResponsePacket() throws ShortBufferException {
+        ByteBuffer packet = ByteBuffer.allocate(RESPONDER_PACKET_SIZE);
+        createResponsePacket(packet);
+        byte[] bytePacket = packet.array();
+        Log.i("wg", "generated packet ("+bytePacket.length+" bytes): "+ Utils.hexdump(bytePacket));
+
+        return bytePacket;
+    }
+
+    public void createResponsePacket(ByteBuffer packet) throws ShortBufferException {
+        if(packet.capacity() - packet.position() < RESPONDER_PACKET_SIZE) {
+            throw new ShortBufferException("initiator packet is 148 bytes");
+        }
+
+        handshakeState.start();
+
+        packet.order(ByteOrder.LITTLE_ENDIAN);
+        int position = packet.position();
+        packet.putInt(responseHeader);
+
+        packet.putInt(myIndex);
+
+        //FIXME: verify we know this index?
+        packet.putInt(theirIndex);
+
+        byte[] payload = new byte[RESPONDER_PAYLOAD_SIZE];
+        handshakeState.writeMessage(payload, 0, new byte[0], 0, 0);
+        packet.put(payload);
+
+        Log.i("wg", "payload: "+ Utils.hexdump(payload));
+        byte[] ephemeral = new byte[PUBLIC_KEY_SIZE];
+        handshakeState.getLocalKeyPair().getPublicKey(ephemeral, 0);
+        Log.i("wg", "ephemeral pubkey: "+Utils.hexdump(ephemeral));
+
+        Log.i("wg", "packet so far: "+ Utils.hexdump(Arrays.copyOfRange(packet.array(), position,
+                position + HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE)));
+
+
+        byte[] serverKey = new byte[PUBLIC_KEY_SIZE];
+        handshakeState.getRemotePublicKey().getPublicKey(serverKey, 0);
+
+        try {
+            Blake2sMessageDigest digest = new Blake2sMessageDigest(MAC_SIZE, null);
+
+            Log.d("wg", "hashing serverKey: "+Utils.hexdump(serverKey));
+            digest.update(serverKey);
+            Log.d("wg", "hashing packet: "+Utils.hexdump(Arrays.copyOfRange(packet.array(), position,
+                    position + HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE)));
+            digest.update(packet.array(), position,
+                    position + HEADER_SIZE + INDEX_SIZE*2 + RESPONDER_PAYLOAD_SIZE);
+
+            byte[] mac1 = digest.digest();
+            packet.put(mac1, 0, MAC_SIZE);
+            Log.i("wg", "complete mac1: "+ Utils.hexdump(mac1));
+            Log.i("wg", "reduced mac1: "+ Utils.hexdump(Arrays.copyOfRange(mac1, 0, MAC_SIZE)));
+        } catch (DigestException e) {
+            e.printStackTrace();
+        }
+    }
 
     public boolean consumeResponsePacket(byte[] responsePacket) {
         return consumeResponsePacket(ByteBuffer.wrap(responsePacket));
