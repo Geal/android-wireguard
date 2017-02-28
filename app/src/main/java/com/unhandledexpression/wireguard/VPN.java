@@ -72,6 +72,8 @@ public class VPN extends VpnService {
 
 
                     Log.d("wg", "starting loop");
+                    ByteBuffer packet = ByteBuffer.allocate(32767);
+
                     while (true) {
                         if (selector.select(TIMEOUT) == 0) {
                             //Log.d("wg", "TIMEOUT");
@@ -94,11 +96,9 @@ public class VPN extends VpnService {
 
                                 out.write(received, 0, received.length);
                                 Log.d("wg", "RECEIVED "+received.length+" bytes");
-                                Thread.sleep(100);
                             }
 
                             if (key.isValid() && key.isWritable()) {
-                                ByteBuffer packet = ByteBuffer.allocate(32767);
 
                                 int length = in.read(packet.array());
 
