@@ -87,7 +87,28 @@ public class State {
             handshakeState.setPrologue(PROLOGUE.getBytes(), 0, PROLOGUE.length());
 
             handshakeState.getLocalKeyPair().setPrivateKey(myPrivateKey, 0);
-            handshakeState.getRemotePublicKey().setPublicKey(theirPublicKey,0);
+            handshakeState.getRemotePublicKey().setPublicKey(theirPublicKey, 0);
+
+            handshakeState.start();
+
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public State(byte[] myPrivateKey, byte[] theirPublicKey, byte[] _presharedKey, int role) {
+
+        Random rand = new SecureRandom();
+        myIndex = rand.nextInt();
+        presharedKey = _presharedKey;
+
+        try {
+            handshakeState = new HandshakeState("NoisePSK_IK_25519_ChaChaPoly_BLAKE2s", role);
+            handshakeState.setPrologue(PROLOGUE.getBytes(), 0, PROLOGUE.length());
+
+            handshakeState.getLocalKeyPair().setPrivateKey(myPrivateKey, 0);
+            handshakeState.getRemotePublicKey().setPublicKey(theirPublicKey, 0);
+            handshakeState.setPreSharedKey(presharedKey, 0, presharedKey.length);
 
             handshakeState.start();
 
@@ -98,6 +119,10 @@ public class State {
 
     public void endHandshake() {
         handshakePair = handshakeState.split();
+    }
+
+    public boolean hasPSK() {
+        return presharedKey != null;
     }
 
     public byte[] createInitiatorPacket() throws ShortBufferException {
@@ -137,7 +162,12 @@ public class State {
         handshakeState.getRemotePublicKey().getPublicKey(serverKey, 0);
 
         try {
-            Blake2sMessageDigest digest = new Blake2sMessageDigest(MAC_SIZE, null);
+            Blake2sMessageDigest digest = null;
+            if (hasPSK()) {
+                digest = new Blake2sMessageDigest(MAC_SIZE, presharedKey);
+            } else {
+                digest = new Blake2sMessageDigest(MAC_SIZE, null);
+            }
 
             Log.d("wg", "hashing serverKey: "+Utils.hexdump(serverKey));
             digest.update(serverKey);
@@ -170,7 +200,13 @@ public class State {
 
                 byte[] myPublicKey = new byte[PUBLIC_KEY_SIZE];
                 handshakeState.getLocalKeyPair().getPublicKey(myPublicKey, 0);
-                Blake2sMessageDigest digest = new Blake2sMessageDigest(MAC_SIZE, null);
+
+                Blake2sMessageDigest digest = null;
+                if (hasPSK()) {
+                    digest = new Blake2sMessageDigest(MAC_SIZE, presharedKey);
+                } else {
+                    digest = new Blake2sMessageDigest(MAC_SIZE, null);
+                }
 
                 digest.update(myPublicKey);
 
@@ -267,7 +303,12 @@ public class State {
         handshakeState.getRemotePublicKey().getPublicKey(serverKey, 0);
 
         try {
-            Blake2sMessageDigest digest = new Blake2sMessageDigest(MAC_SIZE, null);
+            Blake2sMessageDigest digest = null;
+            if (hasPSK()) {
+                digest = new Blake2sMessageDigest(MAC_SIZE, presharedKey);
+            } else {
+                digest = new Blake2sMessageDigest(MAC_SIZE, null);
+            }
 
             Log.d("wg", "hashing serverKey: "+Utils.hexdump(serverKey));
             digest.update(serverKey);
@@ -303,7 +344,13 @@ public class State {
 
                 byte[] myPublicKey = new byte[PUBLIC_KEY_SIZE];
                 handshakeState.getLocalKeyPair().getPublicKey(myPublicKey, 0);
-                Blake2sMessageDigest digest = new Blake2sMessageDigest(MAC_SIZE, null);
+
+                Blake2sMessageDigest digest = null;
+                if (hasPSK()) {
+                    digest = new Blake2sMessageDigest(MAC_SIZE, presharedKey);
+                } else {
+                    digest = new Blake2sMessageDigest(MAC_SIZE, null);
+                }
 
                 digest.update(myPublicKey);
 
@@ -486,31 +533,8 @@ public class State {
         }
     }
 
-    public static void test() {
+    public static void exampleRun(State aliceState, State bobState) {
         try {
-            Log.i("wg", "*** PROTOCOL TEST CASE ***");
-            DHState curve = Noise.createDH("25519");
-            byte[] alicePrivate = new byte[32];
-            byte[] alicePublic  = new byte[32];
-            byte[] bobPrivate   = new byte[32];
-            byte[] bobPublic    = new byte[32];
-
-            curve.generateKeyPair();
-            curve.getPrivateKey(alicePrivate, 0);
-            curve.getPublicKey(alicePublic, 0);
-
-            curve.generateKeyPair();
-            curve.getPrivateKey(bobPrivate, 0);
-            curve.getPublicKey(bobPublic, 0);
-
-            Log.i("wg", "generated keys");
-
-
-            State aliceState = new State(alicePrivate, bobPublic, HandshakeState.INITIATOR);
-            State bobState   = new State(bobPrivate, alicePublic, HandshakeState.RESPONDER);
-
-            Log.i("wg", "generated states");
-
             byte[] initiatorPacket = aliceState.createInitiatorPacket();
 
             Log.i("wg", "Alice created initiator packet:\n"+Utils.formatHexDump(initiatorPacket, 0, initiatorPacket.length));
@@ -540,8 +564,6 @@ public class State {
             assert message == received;
 
             Log.i("wg", "*** DONE ***");
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
         } catch (ShortBufferException e) {
             e.printStackTrace();
         } catch (BadPaddingException e) {
@@ -550,4 +572,70 @@ public class State {
             e.printStackTrace();
         }
     }
+
+    public static void basicTest() {
+        Log.i("wg", "*** PROTOCOL TEST CASE ***");
+        try {
+            DHState curve = Noise.createDH("25519");
+
+            byte[] alicePrivate = new byte[32];
+            byte[] alicePublic  = new byte[32];
+            byte[] bobPrivate   = new byte[32];
+            byte[] bobPublic    = new byte[32];
+
+            curve.generateKeyPair();
+            curve.getPrivateKey(alicePrivate, 0);
+            curve.getPublicKey(alicePublic, 0);
+
+            curve.generateKeyPair();
+            curve.getPrivateKey(bobPrivate, 0);
+            curve.getPublicKey(bobPublic, 0);
+
+            Log.i("wg", "generated keys");
+
+            State aliceState = new State(alicePrivate, bobPublic, HandshakeState.INITIATOR);
+            State bobState   = new State(bobPrivate, alicePublic, HandshakeState.RESPONDER);
+
+            Log.i("wg", "generated states");
+
+            exampleRun(aliceState, bobState);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void preSharedKeyTest() {
+        Log.i("wg", "*** PROTOCOL WITH PRE-SHARED KEY TEST CASE ***");
+        try {
+            DHState curve = Noise.createDH("25519");
+
+            byte[] alicePrivate = new byte[32];
+            byte[] alicePublic = new byte[32];
+            byte[] bobPrivate = new byte[32];
+            byte[] bobPublic = new byte[32];
+            byte[] preSharedKey = new byte[32];
+
+            curve.generateKeyPair();
+            curve.getPrivateKey(alicePrivate, 0);
+            curve.getPublicKey(alicePublic, 0);
+
+            curve.generateKeyPair();
+            curve.getPrivateKey(bobPrivate, 0);
+            curve.getPublicKey(bobPublic, 0);
+
+            Noise.random(preSharedKey);
+
+            Log.i("wg", "generated keys");
+
+            State aliceState = new State(alicePrivate, bobPublic, preSharedKey, HandshakeState.INITIATOR);
+            State bobState = new State(bobPrivate, alicePublic, preSharedKey, HandshakeState.RESPONDER);
+
+            Log.i("wg", "generated states");
+
+            exampleRun(aliceState, bobState);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+    }
 }
+

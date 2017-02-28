@@ -34,7 +34,8 @@ public class MainActivity extends AppCompatActivity {
         final TextView txt = (TextView) findViewById(R.id.txt);
 
         if(true) {
-            State.test();
+            State.basicTest();
+            State.preSharedKeyTest();
 
             /*
             (new AsyncTask<Void, Void, Void>() {
