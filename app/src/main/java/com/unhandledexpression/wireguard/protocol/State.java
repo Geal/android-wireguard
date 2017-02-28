@@ -320,18 +320,10 @@ public class State {
     public byte[] receive(ByteBuffer bb, int bytesRead) throws IOException, ShortBufferException, BadPaddingException {
         bb.order(ByteOrder.LITTLE_ENDIAN);
 
-        //byte[] receivedData = Arrays.copyOfRange(bb.array(), 0, bytesRead);
-        //Log.i("wg", "received: "+Utils.hexdump(receivedData));
-
-
         bb.mark();
-        //ByteBuffer bh = ByteBuffer.wrap(Arrays.copyOfRange(bb.array(), 0, 4));
         int header = bb.getInt();
         if (header == transportHeader) {
 
-            //ByteBuffer bb2 = ByteBuffer.wrap(Arrays.copyOfRange(receivedData, 4, 16));
-
-            //bb2.order(ByteOrder.LITTLE_ENDIAN);
             int remoteIndex = bb.getInt();
             receiveCounter  = bb.getLong();
             Log.d("wg", "got remote index: "+remoteIndex);

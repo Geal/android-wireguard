@@ -20,6 +20,10 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.Iterator;
 
+import javax.crypto.ShortBufferException;
+
+import static java.lang.Math.min;
+
 /**
  * Created by geal on 25/02/2017.
  */
@@ -87,7 +91,11 @@ public class VPN extends VpnService {
                     state.channel = channel;
                     Log.d("wg", "sending keep alive");
                     //keep alive
-                    state.send(new byte[0], 0);
+                    byte[] keepAlivePacket = state.send(new byte[0], 0, 0);
+                    int written = channel.write(ByteBuffer.wrap(keepAlivePacket));
+                    if(written != keepAlivePacket.length) {
+                        Log.d("wg", "error writing packet");
+                    }
 
                     state.channel.configureBlocking(false);
 
@@ -96,7 +104,9 @@ public class VPN extends VpnService {
 
 
                     Log.d("wg", "starting loop");
-                    ByteBuffer packet = ByteBuffer.allocate(32767);
+                    ByteBuffer sendBuffer    = ByteBuffer.allocate(32767);
+                    ByteBuffer receiveBuffer = ByteBuffer.allocate(32767);
+
 
                     while (true) {
                         if (selector.select(TIMEOUT) == 0) {
@@ -112,28 +122,57 @@ public class VPN extends VpnService {
                                 Log.d("wg", "RECEIVE");
 
                                 while(true) {
-                                    byte[] received = state.receive();
+                                    ///////////
+
+                                    int bytesRead = channel.read(receiveBuffer);
+                                    Log.i("wg", "received("+bytesRead+" bytes): ");
+                                    Log.d("wg", Utils.formatHexDump(receiveBuffer.array(), 0, bytesRead));
+                                    if(bytesRead == 0) {
+                                        break;
+                                    }
+
+                                    receiveBuffer.flip();
+
+                                    byte[] received = state.receive(receiveBuffer, bytesRead);
                                     if (received == null) {
                                         Log.d("wg", "received an empty array");
+                                        receiveBuffer.clear();
                                         break;
                                     }
                                     Log.d("wg", "hexdump:\n" + Utils.formatHexDump(received, 0, received.length));
 
                                     out.write(received, 0, received.length);
                                     Log.d("wg", "RECEIVED " + received.length + " bytes");
+                                    receiveBuffer.clear();
                                 }
                             }
 
                             if (key.isValid() && key.isWritable()) {
-
-                                int length = in.read(packet.array());
+                                int length = in.read(sendBuffer.array());
 
                                 if (length > 0) {
                                     Log.d("wg", "SEND "+length+" bytes");
-                                    Log.d("wg", "hexdump:\n"+Utils.formatHexDump(packet.array(), 0, length));
-                                    //packet.limit(length);
-                                    state.send(packet.array(), length);
-                                    packet.clear();
+                                    Log.d("wg", "hexdump:\n"+Utils.formatHexDump(sendBuffer.array(), 0, length));
+                                    int maxPayloadSize = State.MAX_PACKET_SIZE - State.HEADER_SIZE
+                                            - State.INDEX_SIZE - State.COUNTER_SIZE - State.MAC_SIZE;
+                                    int index = 0;
+
+                                    while(index < length) {
+                                        int toCopy = min(maxPayloadSize, sendBuffer.array().length - index);
+
+                                        try {
+                                            byte[] packet = state.send(sendBuffer.array(), index, toCopy);
+                                            int bytesWritten = channel.write(ByteBuffer.wrap(packet));
+                                            if(bytesWritten != packet.length) {
+                                                Log.d("wg", "error writing packet");
+                                            }
+
+                                            index += toCopy;
+                                        } catch (ShortBufferException e) {
+                                            e.printStackTrace();
+                                        }
+                                    }
+                                    sendBuffer.clear();
 
                                 }
                             }
