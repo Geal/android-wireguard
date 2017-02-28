@@ -306,6 +306,9 @@ public class State {
         int bytesRead = channel.read(bb);
         Log.i("wg", "received("+bytesRead+" bytes): ");
         Log.d("wg", Utils.formatHexDump(bb.array(), 0, bytesRead));
+        if(bytesRead == 0) {
+            return null;
+        }
 
         bb.flip();
         //what about when the buffer already has some data?

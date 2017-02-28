@@ -94,15 +94,17 @@ public class VPN extends VpnService {
                             if (key.isValid() && key.isReadable()) {
                                 Log.d("wg", "RECEIVE");
 
-                                byte[] received = state.receive();
-                                if (received == null) {
-                                    Log.d("wg", "received an empty array");
-                                    continue;
-                                }
-                                Log.d("wg", "hexdump:\n"+Utils.formatHexDump(received, 0, received.length));
+                                while(true) {
+                                    byte[] received = state.receive();
+                                    if (received == null) {
+                                        Log.d("wg", "received an empty array");
+                                        break;
+                                    }
+                                    Log.d("wg", "hexdump:\n" + Utils.formatHexDump(received, 0, received.length));
 
-                                out.write(received, 0, received.length);
-                                Log.d("wg", "RECEIVED "+received.length+" bytes");
+                                    out.write(received, 0, received.length);
+                                    Log.d("wg", "RECEIVED " + received.length + " bytes");
+                                }
                             }
 
                             if (key.isValid() && key.isWritable()) {
