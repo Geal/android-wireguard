@@ -140,6 +140,77 @@ public class State {
         }
     }
 
+    public boolean consumeInitiatorPacket(byte[] initiatorPacket) {
+        return consumeInitiatorPacket(ByteBuffer.wrap(initiatorPacket));
+    }
+
+    public boolean consumeInitiatorPacket(ByteBuffer initiatorPacket) {
+        initiatorPacket.order(ByteOrder.LITTLE_ENDIAN);
+        initiatorPacket.mark();
+        int header = initiatorPacket.getInt();
+        if(header == responseHeader) {
+            //FIXME: check the packet's length
+
+            try {
+                //go back to the beginning of the packet
+                initiatorPacket.reset();
+
+                byte[] myPublicKey = new byte[PUBLIC_KEY_SIZE];
+                handshakeState.getLocalKeyPair().getPublicKey(myPublicKey, 0);
+                Blake2sMessageDigest digest = new Blake2sMessageDigest(MAC_SIZE, null);
+
+                digest.update(myPublicKey);
+
+                digest.update(initiatorPacket.array(), initiatorPacket.position(),
+                        HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE);
+
+                byte[] mac1 = Arrays.copyOfRange(initiatorPacket.array(),
+                        initiatorPacket.position()+ HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE,
+                        initiatorPacket.position()+ HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE + MAC_SIZE);
+                if(!Arrays.equals(mac1, digest.digest())) {
+                    Log.d("wg", "invalid mac1");
+                    return false;
+                }
+                //FIXME: mac2 check deactivated for now
+                if(false) {
+                    byte[] mac2 = Arrays.copyOfRange(initiatorPacket.array(),
+                            initiatorPacket.position()+HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE + MAC_SIZE,
+                            initiatorPacket.position()+HEADER_SIZE + INDEX_SIZE + INITIATOR_PAYLOAD_SIZE + MAC_SIZE*2);
+                    //???
+                }
+
+                //now that the MACs are validated, advance past the header
+                int position = initiatorPacket.position();
+                initiatorPacket.position(position+4);
+                Log.d("wg", "offset after header: "+initiatorPacket.position());
+
+                initiatorIndex = initiatorPacket.getInt();
+                Log.d("wg", "offset after index: "+initiatorPacket.position());
+
+
+                Log.i("wg", "initiator packet has initiator="+initiatorIndex);
+
+                byte[] payload = new byte[12];
+                handshakeState.readMessage(initiatorPacket.array(), initiatorPacket.position(), INITIATOR_PAYLOAD_SIZE,
+                        payload, 0);
+                Log.i("wg", "got timestamp: "+Utils.formatHexDump(payload, 0, 12));
+
+                return true;
+            } catch (DigestException e) {
+                e.printStackTrace();
+            } catch (ShortBufferException e) {
+                e.printStackTrace();
+            } catch (BadPaddingException e) {
+                e.printStackTrace();
+            }
+            return false;
+        } else {
+            Log.d("wg", "invalid packet header");
+            //FIXME: we might get the cookie reply here instead
+            return false;
+        }
+    }
+
     public boolean consumeResponsePacket(byte[] responsePacket) {
         return consumeResponsePacket(ByteBuffer.wrap(responsePacket));
     }
@@ -300,8 +371,20 @@ public class State {
 
             Log.i("wg", "decrypted packet("+decrypted+" bytes of payload) with counter: "+receiveCounter);
             return payload;
-
-            //FIXME: check the packet's length
+        } else if (header == initiatorHeader) {
+            bb.reset();
+            if(consumeInitiatorPacket(bb)) {
+                Log.i("wg", "the initiator packet was correct");
+                handshakePair = handshakeState.split();
+                Log.d("wg", "responder state after split: "+handshakeState.getAction());
+            } else {
+                //FIXME: return an error here
+                Log.i("wg", "the initiator packet was incorrect");
+            }
+            return null;
+        } else if (header == cookieReplyHeader) {
+            Log.d("wg", "UNIMPLEMENTED");
+            return null;
         } else if (header == responseHeader) {
             bb.reset();
             if(consumeResponsePacket(bb)) {
