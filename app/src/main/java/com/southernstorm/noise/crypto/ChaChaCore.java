@@ -186,7 +186,7 @@ public final class ChaChaCore {
 		return v << 7 | (v >>> 25);
 	}
 
-	private static void quarterRound(int[] v, int a, int b, int c, int d)
+	public static void quarterRound(int[] v, int a, int b, int c, int d)
 	{
 		v[a] += v[b];
 		v[d] = leftRotate16(v[d] ^ v[a]);

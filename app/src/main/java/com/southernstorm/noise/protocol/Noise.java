@@ -193,7 +193,7 @@ public final class Noise {
 	 * 
 	 * @param array The array whose contents should be destroyed.
 	 */
-	static void destroy(byte[] array)
+	public static void destroy(byte[] array)
 	{
 		Arrays.fill(array, (byte)0);
 	}
@@ -223,7 +223,7 @@ public final class Noise {
 	 * class, then this function will instead throw an instance of
 	 * the superclass BadPaddingException.
 	 */
-	static void throwBadTagException() throws BadPaddingException
+	public static void throwBadTagException() throws BadPaddingException
 	{
 		try {
 			Class<?> c = Class.forName("javax.crypto.AEADBadTagException");
