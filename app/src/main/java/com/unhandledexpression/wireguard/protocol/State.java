@@ -11,10 +11,12 @@ import com.unhandledexpression.wireguard.Utils;
 import android.util.Log;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.Charset;
 import java.security.DigestException;
+import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Arrays;
@@ -49,6 +51,9 @@ public class State {
     public static final int    RESPONDER_PAYLOAD_SIZE = 48;
     // header(4) + sender(4) + receiver(4) + responder payload(48) + mac1(16) + mac2(16)
     public static final int    RESPONDER_PACKET_SIZE  = 92;
+    public static final int    COOKIE_NONCE_SIZE      = 24;
+    public static final int    COOKIE_PAYLOAD_SIZE    = 32;
+    public static final int    COOKIE_PACKET_SIZE     = 32;
     // maybe make this configurable
     public static final int    MAX_PACKET_SIZE        = 512;
 
@@ -58,8 +63,10 @@ public class State {
     public int             theirIndex;
     public int             myIndex;
     public CipherStatePair handshakePair;
-    public byte[]          presharedKey   = null;
-    public byte[]          currentCookie  = null;
+    public byte[]          presharedKey        = null;
+    public byte[]          lastReceivedCookie  = null;
+    public byte[]          cookieSecret        = null;
+    public byte[]          peerIP              = null;
 
     public State(Configuration configuration, int role) {
         Random rand = new SecureRandom();
@@ -119,6 +126,10 @@ public class State {
         }
     }
 
+    public void setPeerIP(InetAddress ip) {
+        peerIP = ip.getAddress();
+
+    }
     public void endHandshake() {
         handshakePair = handshakeState.split();
     }
@@ -128,7 +139,7 @@ public class State {
     }
 
     public boolean hasCookie() {
-        return currentCookie != null;
+        return lastReceivedCookie != null;
     }
 
     public boolean isCookieExpired() {
@@ -191,7 +202,7 @@ public class State {
             Log.i("wg", "reduced mac1: " + Utils.hexdump(Arrays.copyOfRange(mac1, 0, MAC_SIZE)));
 
             if(hasCookie() && !isCookieExpired()) {
-                Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, currentCookie);
+                Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, lastReceivedCookie);
                 digest2.update(packet.array(), 0, HEADER_SIZE+INDEX_SIZE+INITIATOR_PAYLOAD_SIZE+MAC_SIZE);
                 byte[] mac2 = digest2.digest();
                 packet.put(mac2, 0, MAC_SIZE);
@@ -240,7 +251,7 @@ public class State {
                 }
 
                 if(hasCookie()) {
-                    Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, currentCookie);
+                    Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, lastReceivedCookie);
                     digest2.update(initiatorPacket.array(), initiatorPacket.position(),
                             HEADER_SIZE+INDEX_SIZE+INITIATOR_PAYLOAD_SIZE+MAC_SIZE);
                     byte[] mac2 = Arrays.copyOfRange(initiatorPacket.array(),
@@ -347,7 +358,7 @@ public class State {
             Log.i("wg", "reduced mac1: " + Utils.hexdump(Arrays.copyOfRange(mac1, 0, MAC_SIZE)));
 
             if(hasCookie() && !isCookieExpired()) {
-                Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, currentCookie);
+                Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, lastReceivedCookie);
                 digest2.update(packet.array(), 0, HEADER_SIZE+INDEX_SIZE*2+RESPONDER_PAYLOAD_SIZE+MAC_SIZE);
                 byte[] mac2 = digest2.digest();
                 packet.put(mac2, 0, MAC_SIZE);
@@ -397,7 +408,7 @@ public class State {
                 }
 
                 if(hasCookie()) {
-                    Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, currentCookie);
+                    Blake2sMessageDigest digest2 = new Blake2sMessageDigest(MAC_SIZE, lastReceivedCookie);
                     digest2.update(responsePacket.array(), responsePacket.position(),
                             HEADER_SIZE+INDEX_SIZE*2+RESPONDER_PAYLOAD_SIZE+MAC_SIZE);
                     byte[] mac2 = Arrays.copyOfRange(responsePacket.array(),
@@ -441,49 +452,105 @@ public class State {
         }
     }
 
-    /*
-    public void initiate(DatagramChannel _channel) {
-        channel = _channel;
+    public byte[] generateCookieKey(byte[] publicKey) throws DigestException {
+        Blake2sMessageDigest keyDigest = null;
+        if (hasPSK()) {
+            keyDigest = new Blake2sMessageDigest(MAC_SIZE, presharedKey);
+        } else {
+            keyDigest = new Blake2sMessageDigest(MAC_SIZE, null);
+        }
+
+        keyDigest.update(publicKey);
+
+        return keyDigest.digest();
+    }
+
+    public byte[] createCookieReplyPacket(byte[] lastReceivedMac1) throws ShortBufferException {
+        ByteBuffer packet = ByteBuffer.allocate(COOKIE_PACKET_SIZE);
+        createCookieReplyPacket(packet, lastReceivedMac1);
+        byte[] bytePacket = packet.array();
+        Log.i("wg", "generated packet ("+bytePacket.length+" bytes): "+ Utils.hexdump(bytePacket));
+
+        return bytePacket;
+    }
+
+    public void createCookieReplyPacket(ByteBuffer packet, byte[] lastReceivedMac1)
+            throws ShortBufferException {
+        if(packet.capacity() - packet.position() < COOKIE_PACKET_SIZE) {
+            throw new ShortBufferException("cookie reply packet is "+COOKIE_PACKET_SIZE+" bytes");
+        }
+
+        packet.order(ByteOrder.LITTLE_ENDIAN);
+        packet.putInt(cookieReplyHeader);
+        packet.putInt(theirIndex);
+
+
         try {
-            Log.d("wg", "initiator state before send: "+handshakeState.getAction());
-            byte[] bytePacket = createInitiatorPacket();
+            Blake2sMessageDigest digest = new Blake2sMessageDigest(MAC_SIZE, cookieSecret);
+            digest.update(peerIP, 0, peerIP.length);
+            byte[] cookie = digest.digest();
 
-            channel.write(ByteBuffer.wrap(bytePacket, 0, bytePacket.length));
-            Log.i("wg", "sent packet");
-            Log.d("wg", "initiator state after send: "+handshakeState.getAction());
+            byte[] myPublicKey = new byte[32];
+            handshakeState.getLocalKeyPair().getPublicKey(myPublicKey, 0);
+            byte[] cookieKey = generateCookieKey(myPublicKey);
 
+            byte[] nonce = new byte[24];
+            Noise.random(nonce);
 
-            ByteBuffer bb = ByteBuffer.allocate(RESPONDER_PACKET_SIZE);
-            int bytesRead = channel.read(bb);
-            bb.flip();
+            byte[] encryptedCookie = new byte[32];
+            XChacha20Poly1305.encrypt(cookieKey, nonce, lastReceivedMac1,
+            cookie, 0, cookie.length,
+            encryptedCookie, 0);
 
-            Log.i("wg", "received("+bytesRead+" bytes): ");
-            Log.d("wg", Utils.formatHexDump(bb.array(), 0, bytesRead));
-            if(consumeResponsePacket(bb)) {
-                    Log.i("wg", "the response packet was correct");
-            }
-            Log.d("wg", "initiator state after receive: "+handshakeState.getAction());
-
-            handshakePair = handshakeState.split();
-            Log.d("wg", "initiator state after split: "+handshakeState.getAction());
-
-            Log.d("wg", "sending keep alive");
-            //keep alive
-            send(new byte[0], 0);
-            Log.d("wg", "sent keep alive");
-
-
-        } catch (ShortBufferException e) {
+            packet.put(nonce, 0, 24);
+            packet.put(encryptedCookie);
+        } catch (DigestException e) {
             e.printStackTrace();
-        } catch (UnknownHostException e) {
-            e.printStackTrace();
-        } catch (SocketException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
+        } catch (InvalidKeyException e) {
             e.printStackTrace();
         }
     }
-    */
+
+    public boolean consumeCookieReplyPacket(byte[] cookiePacket, byte[] lastSentMac1) {
+        return consumeCookieReplyPacket(ByteBuffer.wrap(cookiePacket), lastSentMac1);
+    }
+
+    public boolean consumeCookieReplyPacket(ByteBuffer cookiePacket, byte[] lastSentMac1) {
+        cookiePacket.order(ByteOrder.LITTLE_ENDIAN);
+        int header = cookiePacket.getInt();
+        if (header == cookieReplyHeader) {
+            try {
+                int index = cookiePacket.getInt();
+                byte[] nonce = new byte[24];
+                cookiePacket.get(nonce);
+
+                byte[] theirPublicKey = new byte[32];
+               handshakeState.getRemotePublicKey().getPublicKey(theirPublicKey, 0);
+
+                byte[] cookieKey = generateCookieKey(theirPublicKey);
+
+                byte[] decryptedCookie = new byte[16];
+                XChacha20Poly1305.decrypt(cookieKey, nonce, lastSentMac1,
+                        cookiePacket.array(), cookiePacket.position(), COOKIE_PAYLOAD_SIZE,
+                        decryptedCookie, 0);
+
+                return true;
+            } catch (DigestException e) {
+                e.printStackTrace();
+            } catch (BadPaddingException e) {
+                e.printStackTrace();
+            } catch (ShortBufferException e) {
+                e.printStackTrace();
+            } catch (InvalidKeyException e) {
+                e.printStackTrace();
+            }
+            return false;
+        } else {
+            Log.d("wg", "invalid packet header");
+            //FIXME: we might get the cookie reply here instead
+            return false;
+        }
+    }
 
     public byte[] send(byte[] data, int offset, int length) throws IOException, ShortBufferException {
         ChaChaPolyCipherState sender = (ChaChaPolyCipherState) handshakePair.getSender();
